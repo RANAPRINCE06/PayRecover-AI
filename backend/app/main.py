@@ -1,0 +1,75 @@
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.core.config import settings
+from app.db.session import engine, Base
+from app.db.seed_data import seed_database
+from app.api.routes import router as api_router
+
+# Setup logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+)
+logger = logging.getLogger("payrecover.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    logger.info(f"Starting {settings.APP_NAME} in {settings.ENVIRONMENT} mode...")
+    # Initialize DB schema
+    Base.metadata.create_all(bind=engine)
+    # Seed initial data
+    try:
+        seed_database()
+    except Exception as e:
+        logger.error(f"Error seeding database on startup: {e}")
+    yield
+    logger.info("Shutting down PayRecover AI...")
+
+
+app = FastAPI(
+    title="PayRecover AI API",
+    description="Autonomous Revenue Recovery & Customer Intent Engine for Razorpay Merchants",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS Middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled Exception at {request.url.path}: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "An internal server error occurred.", "path": str(request.url.path)}
+    )
+
+
+# Mount API routes under /api
+app.include_router(api_router, prefix="/api")
+
+
+@app.get("/")
+def root():
+    return {
+        "service": "PayRecover AI API",
+        "docs": "/docs",
+        "health": "/api/health"
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
