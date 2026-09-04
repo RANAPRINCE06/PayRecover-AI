@@ -273,3 +273,53 @@ export interface HumanApproval {
   rejected_at?: string;
 }
 
+
+// ─── Phase 6: Autonomous Recovery Orchestrator ────────────────────────────────
+
+export type AutonomousPipelineStepStatus =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'SUCCESS'
+  | 'SKIPPED'
+  | 'BLOCKED'
+  | 'FAILED';
+
+export interface AutonomousPipelineStep {
+  step_index: number;
+  stage_name: string;
+  agent: string;
+  status: AutonomousPipelineStepStatus | string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  duration_ms?: number | null;
+  summary: string;
+  output?: Record<string, any> | null;
+  guardrail_applied: boolean;
+  guardrail_constraints: string[];
+}
+
+export interface AutonomousRecoveryResult {
+  run_id: string;
+  case_id: string;
+  payment_id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: number;
+  currency: string;
+  steps: AutonomousPipelineStep[];
+  total_steps: number;
+  completed_steps: number;
+  final_status: 'RECOVERED' | 'AWAITING_HUMAN_APPROVAL' | 'IN_PROGRESS' | 'BLOCKED' | 'FAILED' | string;
+  recovery_score: number;
+  recovery_probability: number;
+  strategy_selected?: string | null;
+  tool_executed?: string | null;
+  payment_link_url?: string | null;
+  tool_execution_result?: Record<string, any> | null;
+  guardrail_status: string;
+  requires_human_approval: boolean;
+  started_at: string;
+  completed_at?: string | null;
+  total_duration_ms?: number | null;
+  executive_summary: string;
+}

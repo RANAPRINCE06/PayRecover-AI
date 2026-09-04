@@ -217,6 +217,69 @@ class ToolExecutionResult(BaseModel):
 
 
 # -------------------------------------------------------------
+# Phase 6 - Autonomous Recovery Orchestrator Contracts
+# -------------------------------------------------------------
+
+class AutonomousPipelineStepStatus(str, Enum):
+    PENDING = "PENDING"
+    RUNNING = "RUNNING"
+    SUCCESS = "SUCCESS"
+    SKIPPED = "SKIPPED"
+    BLOCKED = "BLOCKED"
+    FAILED = "FAILED"
+
+
+class AutonomousPipelineStep(BaseModel):
+    """One stage in the autonomous pipeline execution."""
+    step_index: int = Field(..., ge=0)
+    stage_name: str = Field(..., min_length=1)  # INVESTIGATE, INTENT, STRATEGY, GUARDRAIL, EXECUTE, SETTLE
+    agent: str = Field(..., min_length=1)         # INVESTIGATOR | INTENT_AI | STRATEGIST | GUARDRAIL | TOOL_EXECUTOR
+    status: str = Field(..., min_length=1)        # AutonomousPipelineStepStatus value
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    summary: str = Field(default="")
+    output: Optional[Dict[str, Any]] = None
+    guardrail_applied: bool = False
+    guardrail_constraints: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AutonomousRecoveryResult(BaseModel):
+    """Full idempotent result of one autonomous recovery pipeline run."""
+    run_id: str = Field(..., min_length=1)
+    case_id: str = Field(..., min_length=1)
+    payment_id: str = Field(..., min_length=1)
+    customer_id: str = Field(..., min_length=1)
+    customer_name: str = Field(default="")
+    amount: float = Field(..., ge=0.0)
+    currency: str = Field(default="INR")
+    # Pipeline steps
+    steps: List[AutonomousPipelineStep] = Field(default_factory=list)
+    total_steps: int = Field(default=0, ge=0)
+    completed_steps: int = Field(default=0, ge=0)
+    # Outcome
+    final_status: str = Field(..., min_length=1)  # RECOVERED | AWAITING_HUMAN_APPROVAL | IN_PROGRESS | BLOCKED | FAILED
+    recovery_score: float = Field(default=0.0, ge=0.0, le=100.0)
+    recovery_probability: float = Field(default=0.0, ge=0.0, le=1.0)
+    strategy_selected: Optional[str] = None
+    tool_executed: Optional[str] = None
+    payment_link_url: Optional[str] = None
+    tool_execution_result: Optional[Dict[str, Any]] = None
+    guardrail_status: str = Field(default="SAFE")
+    requires_human_approval: bool = False
+    # Timing
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    completed_at: Optional[datetime] = None
+    total_duration_ms: Optional[int] = None
+    # Summary
+    executive_summary: str = Field(default="")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# -------------------------------------------------------------
 # Entity Schemas & API Responses
 # -------------------------------------------------------------
 

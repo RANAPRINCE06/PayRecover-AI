@@ -43,7 +43,8 @@ from app.schemas.contracts import (
     ToolExecutionStatus,
     ToolProposal,
     ToolExecutionRequest,
-    ToolExecutionResult
+    ToolExecutionResult,
+    AutonomousRecoveryResult
 )
 from app.agents.investigator import investigator_agent
 from app.agents.intent import intent_agent
@@ -488,4 +489,81 @@ def confirm_settlement(case_id: str, db: Session = Depends(get_db)):
         "status": "RECOVERED",
         "recovered_amount": case.recovered_amount,
         "payment_id": payment.id
+    }
+
+
+# ── Phase 6: Autonomous Recovery Orchestrator ────────────────────────────────
+
+@router.post("/recovery/{case_id}/autonomous", response_model=AutonomousRecoveryResult, tags=["Recovery Engine"])
+def run_autonomous_recovery(
+    case_id: str,
+    customer_message: Optional[str] = Body(default=None, embed=True,
+                                           description="Optional customer message for intent analysis"),
+    db: Session = Depends(get_db)
+):
+    """
+    Phase 6: One-click Autonomous Recovery Pipeline.
+
+    Sequences all 6 stages:
+      INVESTIGATE → INTENT → STRATEGY → GUARDRAIL → EXECUTE → SETTLE
+
+    Returns a fully-typed AutonomousRecoveryResult with per-step timing,
+    guardrail audit, tool execution outcome, and executive summary.
+
+    AI output is advisory; backend guardrails are always authoritative.
+    """
+    try:
+        return orchestrator.run_autonomous_recovery(
+            db=db,
+            recovery_case_id=case_id,
+            customer_message=customer_message
+        )
+    except ValueError as val_err:
+        err_msg = str(val_err)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Autonomous recovery pipeline error: {str(e)}")
+
+
+@router.get("/recovery/{case_id}/autonomous/status", tags=["Recovery Engine"])
+def get_autonomous_recovery_status(case_id: str, db: Session = Depends(get_db)):
+    """
+    Phase 6: Live status poll for an autonomous recovery case.
+    Returns a lightweight status snapshot suitable for frontend polling.
+    """
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Recovery case '{case_id}' not found")
+
+    payment = case.payment
+    recent_actions = [
+        {
+            "id": a.id,
+            "agent_type": a.agent_type,
+            "action_type": a.action_type,
+            "status": a.status,
+            "reasoning_summary": a.reasoning_summary,
+            "created_at": a.created_at.isoformat() if a.created_at else None
+        }
+        for a in sorted(case.actions, key=lambda x: x.created_at, reverse=True)[:10]
+    ]
+
+    return {
+        "case_id": case.id,
+        "status": case.status,
+        "recovery_score": case.recovery_score,
+        "recovery_probability": case.recovery_probability,
+        "current_strategy": case.current_strategy,
+        "customer_intent": case.customer_intent,
+        "payment_link_url": case.payment_link_url,
+        "recovered_amount": case.recovered_amount,
+        "retry_count": case.retry_count,
+        "payment_amount": payment.amount if payment else None,
+        "payment_method": payment.payment_method if payment else None,
+        "actions_count": len(case.actions),
+        "recent_actions": recent_actions,
+        "started_at": case.started_at.isoformat() if case.started_at else None,
+        "completed_at": case.completed_at.isoformat() if case.completed_at else None
     }

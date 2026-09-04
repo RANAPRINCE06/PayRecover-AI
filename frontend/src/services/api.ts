@@ -7,7 +7,8 @@ import {
   CopilotResponse,
   RecoveryStrategyResult,
   ToolExecutionRequest,
-  ToolExecutionResult
+  ToolExecutionResult,
+  AutonomousRecoveryResult
 } from '../types';
 
 const API_BASE = '/api';
@@ -117,5 +118,15 @@ export const api = {
     }),
 
   confirmSettlement: (caseId: string) =>
-    request<any>(`/recovery/${caseId}/confirm-settlement`, { method: 'POST' })
+    request<any>(`/recovery/${caseId}/confirm-settlement`, { method: 'POST' }),
+
+  // Phase 6: Autonomous Recovery Engine
+  runAutonomousRecovery: (caseId: string, customerMessage?: string) =>
+    request<AutonomousRecoveryResult>(`/recovery/${caseId}/autonomous`, {
+      method: 'POST',
+      body: customerMessage ? JSON.stringify({ customer_message: customerMessage }) : undefined
+    }),
+
+  getAutonomousStatus: (caseId: string) =>
+    request<Record<string, any>>(`/recovery/${caseId}/autonomous/status`)
 };

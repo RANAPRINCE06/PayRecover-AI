@@ -77,6 +77,7 @@ export function App() {
                   recoveryCases={recoveryCases}
                   onSelectPayment={(p) => setSelectedPayment(p)}
                   onOpenSimulate={() => setIsSimulateOpen(true)}
+                  onRefresh={loadData}
                 />
               )}
 
