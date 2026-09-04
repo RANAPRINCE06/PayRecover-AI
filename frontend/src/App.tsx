@@ -1,20 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Topbar } from './components/Topbar';
 import { CommandCenter } from './pages/CommandCenter';
+import { RecoveryCasesPage } from './pages/RecoveryCasesPage';
 import { RecoveryIntelligence } from './pages/RecoveryIntelligence';
 import { PaymentsPage } from './pages/PaymentsPage';
 import { AgentActivityPage } from './pages/AgentActivityPage';
 import { AICopilotPage } from './pages/AICopilotPage';
 import { GuardrailsPage } from './pages/GuardrailsPage';
+import { DemoCenter } from './pages/DemoCenter';
 import { SettingsPage } from './pages/SettingsPage';
 import { PaymentDetailModal } from './components/PaymentDetailModal';
 import { SimulateModal } from './components/SimulateModal';
 import { LoadingState } from './components/LoadingState';
+import { ToastProvider } from './components/Toast';
 import { api } from './services/api';
 import { DashboardMetrics, Payment, RecoveryCase, AgentAction } from './types';
 
-export function App() {
+function AppContent() {
   const [activeTab, setActiveTab] = useState('command-center');
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -25,7 +28,7 @@ export function App() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setRefreshing(true);
     try {
       const [m, p, rc, acts] = await Promise.all([
@@ -44,11 +47,25 @@ export function App() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [loadData]);
+
+  const handleSelectPaymentById = useCallback(async (paymentId: string) => {
+    const found = payments.find((p) => p.id === paymentId || p.razorpay_payment_id === paymentId);
+    if (found) {
+      setSelectedPayment(found);
+    } else {
+      try {
+        const p = await api.getPayment(paymentId);
+        setSelectedPayment(p);
+      } catch (err) {
+        console.error('Failed fetching payment by id:', err);
+      }
+    }
+  }, [payments]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-dark-900 text-slate-100 antialiased font-sans">
@@ -60,12 +77,12 @@ export function App() {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-0 overflow-hidden">
         {/* Top Navbar */}
         <Topbar onRefresh={loadData} isRefreshing={refreshing} />
 
         {/* Scrollable Viewport */}
-        <main className="flex-1 overflow-y-auto p-8">
+        <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {loading ? (
             <LoadingState message="Connecting to PayRecover AI Engine & Razorpay Telemetry..." />
           ) : (
@@ -81,8 +98,11 @@ export function App() {
                 />
               )}
 
-              {activeTab === 'intelligence' && (
-                <RecoveryIntelligence metrics={metrics} />
+              {activeTab === 'recovery-cases' && (
+                <RecoveryCasesPage
+                  onSelectPayment={(p) => setSelectedPayment(p)}
+                  onNavigate={(tab) => setActiveTab(tab)}
+                />
               )}
 
               {activeTab === 'payments' && (
@@ -92,8 +112,18 @@ export function App() {
                 />
               )}
 
+              {activeTab === 'intelligence' && (
+                <RecoveryIntelligence
+                  metrics={metrics}
+                  onSelectPaymentId={handleSelectPaymentById}
+                />
+              )}
+
               {activeTab === 'agent-activity' && (
-                <AgentActivityPage actions={agentActions} />
+                <AgentActivityPage
+                  actions={agentActions}
+                  onRefresh={loadData}
+                />
               )}
 
               {activeTab === 'copilot' && (
@@ -102,6 +132,13 @@ export function App() {
 
               {activeTab === 'guardrails' && (
                 <GuardrailsPage />
+              )}
+
+              {activeTab === 'demo-center' && (
+                <DemoCenter
+                  onSelectPaymentId={handleSelectPaymentById}
+                  onRefreshAll={loadData}
+                />
               )}
 
               {activeTab === 'settings' && (
@@ -126,6 +163,14 @@ export function App() {
         onSimulationSuccess={loadData}
       />
     </div>
+  );
+}
+
+export function App() {
+  return (
+    <ToastProvider>
+      <AppContent />
+    </ToastProvider>
   );
 }
 

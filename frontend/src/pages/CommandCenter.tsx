@@ -1,30 +1,25 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
-  IndianRupee,
-  AlertTriangle,
-  Sparkles,
-  CheckCircle2,
-  Bot,
-  Zap,
-  Loader2,
-  ChevronDown,
-  ChevronUp
+  IndianRupee, AlertTriangle, Sparkles, CheckCircle2,
+  Bot, Zap, Loader2, ChevronDown, ChevronUp,
+  TrendingUp, TrendingDown, Target, Shield,
+  Activity, Clock, Users, BarChart3, RefreshCw
 } from 'lucide-react';
 import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid
+  ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
+  Tooltip, CartesianGrid, BarChart, Bar
 } from 'recharts';
-import { DashboardMetrics, Payment, RecoveryCase, AutonomousRecoveryResult } from '../types';
+import {
+  DashboardMetrics, Payment, RecoveryCase,
+  AutonomousRecoveryResult, AnalyticsOverview,
+  RecoveryTrend, RecoveryOpportunity, SystemStatus
+} from '../types';
 import { MetricCard } from '../components/MetricCard';
 import { StatusBadge } from '../components/StatusBadge';
 import { RecoveryScore } from '../components/RecoveryScore';
 import { AutonomousPipelinePanel } from '../components/AutonomousPipelinePanel';
 import { api } from '../services/api';
+import { useToast } from '../components/Toast';
 
 interface CommandCenterProps {
   metrics: DashboardMetrics | null;
@@ -33,45 +28,238 @@ interface CommandCenterProps {
   onSelectPayment: (p: Payment) => void;
   onOpenSimulate: () => void;
   onRefresh?: () => void;
+  onNavigate?: (tab: string) => void;
 }
 
+type TrendPeriod = '7d' | '30d' | '90d';
+
+// ─── KPI Card ─────────────────────────────────────────────────────────────────
+
+function KpiCard({
+  label, value, sub, icon: Icon, accent = 'cyan', loading = false, trend
+}: {
+  label: string;
+  value: string | number;
+  sub?: string;
+  icon: React.FC<any>;
+  accent?: 'cyan' | 'emerald' | 'rose' | 'amber' | 'indigo' | 'violet';
+  loading?: boolean;
+  trend?: { value: number; label: string };
+}) {
+  const colors = {
+    cyan:    { icon: 'text-brand-cyan',    border: 'border-brand-cyan/20',    bg: 'bg-brand-cyan/5',    badge: 'text-brand-cyan bg-brand-cyan/10' },
+    emerald: { icon: 'text-emerald-400',   border: 'border-emerald-500/20',   bg: 'bg-emerald-500/5',   badge: 'text-emerald-400 bg-emerald-500/10' },
+    rose:    { icon: 'text-rose-400',      border: 'border-rose-500/20',      bg: 'bg-rose-500/5',      badge: 'text-rose-400 bg-rose-500/10' },
+    amber:   { icon: 'text-amber-400',     border: 'border-amber-500/20',     bg: 'bg-amber-500/5',     badge: 'text-amber-400 bg-amber-500/10' },
+    indigo:  { icon: 'text-indigo-400',    border: 'border-indigo-500/20',    bg: 'bg-indigo-500/5',    badge: 'text-indigo-400 bg-indigo-500/10' },
+    violet:  { icon: 'text-violet-400',    border: 'border-violet-500/20',    bg: 'bg-violet-500/5',    badge: 'text-violet-400 bg-violet-500/10' },
+  };
+  const c = colors[accent];
+
+  return (
+    <div className={`p-4 rounded-xl border ${c.border} bg-dark-850 flex flex-col gap-3`}>
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">{label}</span>
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${c.bg} border ${c.border}`}>
+          <Icon className={`w-3.5 h-3.5 ${c.icon}`} />
+        </div>
+      </div>
+      {loading ? (
+        <div className="h-7 w-24 bg-dark-700 rounded animate-pulse" />
+      ) : (
+        <div className="text-2xl font-black font-mono text-white tracking-tight">{value}</div>
+      )}
+      {sub && <div className="text-[11px] text-slate-500">{sub}</div>}
+      {trend && !loading && (
+        <div className={`flex items-center gap-1 text-[10px] font-semibold ${trend.value >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+          {trend.value >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+          {trend.label}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── System Status Bar ─────────────────────────────────────────────────────────
+
+function SystemStatusBar({ status }: { status: SystemStatus | null }) {
+  if (!status) return null;
+
+  const compLabels: Record<string, string> = {
+    api: 'API', database: 'Database', redis: 'Redis',
+    gemini: 'Gemini', razorpay: 'Razorpay', tool_executor: 'Tool Executor', guardrails: 'Guardrails'
+  };
+
+  const statusColor = (s: string) => {
+    if (s === 'HEALTHY' || s === 'ACTIVE' || s === 'CONNECTED') return 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20';
+    if (s === 'TEST_MODE' || s === 'FALLBACK') return 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+    if (s === 'DEGRADED' || s === 'UNKNOWN') return 'text-rose-400 bg-rose-500/10 border-rose-500/20';
+    return 'text-slate-400 bg-dark-700 border-dark-600';
+  };
+
+  return (
+    <div className="p-3 rounded-xl bg-dark-850 border border-dark-700 flex flex-wrap gap-1.5 items-center">
+      <span className="text-[9px] text-slate-600 uppercase tracking-widest font-bold mr-1">System</span>
+      {Object.entries(status.components).map(([key, comp]) => (
+        <div
+          key={key}
+          title={comp.detail}
+          className={`flex items-center gap-1 text-[9px] font-mono font-bold px-2 py-0.5 rounded border ${statusColor(comp.status)}`}
+        >
+          {compLabels[key] || key} · {comp.status}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─── Recovery Funnel ──────────────────────────────────────────────────────────
+
+function RecoveryFunnel({
+  overview, onFilter
+}: {
+  overview: AnalyticsOverview | null;
+  onFilter?: (stage: string) => void;
+}) {
+  if (!overview) return <div className="h-32 bg-dark-800 animate-pulse rounded-xl" />;
+
+  const total = overview.failed_payments_count + overview.recovered_payments_count;
+  const stages = [
+    { label: 'Failed Payments',         count: overview.failed_payments_count,    amt: overview.revenue_at_risk,      pct: 100, filter: 'FAILED' },
+    { label: 'Recoverable (AI Scored)', count: Math.round(overview.total_cases * 0.85 + overview.active_cases_count), amt: overview.predicted_recoverable + overview.revenue_recovered, pct: total > 0 ? Math.round(((overview.total_cases) / total) * 100) : 0, filter: '' },
+    { label: 'AI Strategies Generated', count: overview.total_cases,              amt: overview.predicted_recoverable, pct: total > 0 ? Math.round((overview.total_cases / total) * 100) : 0, filter: '' },
+    { label: 'Recovery Actions',        count: overview.total_recovery_attempts,  amt: overview.predicted_recoverable * 0.75, pct: total > 0 ? Math.round((overview.total_recovery_attempts / Math.max(1, total)) * 100) : 0, filter: '' },
+    { label: 'Revenue Recovered',       count: overview.recovered_cases_count,    amt: overview.revenue_recovered,    pct: total > 0 ? Math.round((overview.recovered_cases_count / total) * 100) : 0, filter: 'RECOVERED' },
+  ];
+
+  const maxCount = Math.max(...stages.map(s => s.count), 1);
+
+  return (
+    <div className="space-y-1">
+      {stages.map((s, i) => {
+        const width = Math.max(25, Math.round((s.count / maxCount) * 100));
+        return (
+          <div key={s.label} className="flex items-center gap-3">
+            <div className="w-36 flex-shrink-0 text-[10px] text-slate-400 text-right">{s.label}</div>
+            <div className="flex-1 h-8 bg-dark-800 rounded-lg overflow-hidden border border-dark-700 relative">
+              <div
+                className="h-full bg-gradient-to-r from-brand-cyan/40 to-brand-cyan/20 flex items-center px-3 transition-all"
+                style={{ width: `${width}%` }}
+              >
+                <span className="text-[11px] font-bold text-brand-cyan whitespace-nowrap">{s.count.toLocaleString()}</span>
+              </div>
+            </div>
+            <div className="w-24 flex-shrink-0 text-[10px] text-slate-500 font-mono">
+              ₹{Math.round(s.amt / 1000)}k
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Opportunity Card ─────────────────────────────────────────────────────────
+
+function OpportunityCard({ opp, onView }: { opp: RecoveryOpportunity; onView: (id: string) => void }) {
+  const probColor = opp.recovery_probability >= 0.85 ? 'text-emerald-400' : opp.recovery_probability >= 0.70 ? 'text-amber-400' : 'text-rose-400';
+  const guardrailBadge = opp.guardrail_hint === 'SAFE'
+    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
+    : 'bg-amber-500/10 text-amber-400 border-amber-500/20';
+
+  return (
+    <div className="p-3.5 rounded-xl bg-dark-800 border border-dark-700 hover:border-brand-cyan/30 transition">
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <div>
+          <div className="text-xs font-bold text-white">{opp.customer_name}</div>
+          <div className="text-[10px] text-slate-500 font-mono">{opp.payment_method} · {opp.failure_reason}</div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <div className="text-sm font-black font-mono text-white">₹{opp.amount.toLocaleString()}</div>
+          <div className={`text-[10px] font-bold ${probColor}`}>{Math.round(opp.recovery_probability * 100)}% recovery</div>
+        </div>
+      </div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {opp.current_strategy && (
+            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">
+              {opp.current_strategy}
+            </span>
+          )}
+          <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${guardrailBadge}`}>
+            {opp.guardrail_hint}
+          </span>
+        </div>
+        <button
+          onClick={() => onView(opp.case_id)}
+          className="text-[10px] font-bold text-brand-cyan hover:text-white px-2 py-1 rounded bg-brand-cyan/10 hover:bg-brand-cyan/20 transition"
+        >
+          VIEW
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main Command Center 2.0 ─────────────────────────────────────────────────
+
 export const CommandCenter: React.FC<CommandCenterProps> = ({
-  metrics,
-  payments,
-  recoveryCases,
-  onSelectPayment,
-  onOpenSimulate,
-  onRefresh
+  metrics, payments, recoveryCases,
+  onSelectPayment, onOpenSimulate, onRefresh, onNavigate
 }) => {
+  const { success, error: showError } = useToast();
+
+  const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
+  const [trend, setTrend] = useState<RecoveryTrend | null>(null);
+  const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>('7d');
+  const [opportunities, setOpportunities] = useState<RecoveryOpportunity[]>([]);
+  const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(true);
+  const [trendLoading, setTrendLoading] = useState(true);
   const [autoRunning, setAutoRunning] = useState(false);
   const [autoResult, setAutoResult] = useState<AutonomousRecoveryResult | null>(null);
   const [autoError, setAutoError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
 
-  if (!metrics) return null;
+  const loadAnalytics = useCallback(async () => {
+    try {
+      const [ov, opps, sys] = await Promise.all([
+        api.getAnalyticsOverview(),
+        api.getRecoveryOpportunities(5),
+        api.getSystemStatus()
+      ]);
+      setOverview(ov);
+      setOpportunities(opps.opportunities);
+      setSystemStatus(sys);
+    } catch {
+      // non-fatal
+    } finally {
+      setOverviewLoading(false);
+    }
+  }, []);
 
-  const highPriorityCases = recoveryCases
-    .filter((rc) => rc.status === 'AWAITING_HUMAN_APPROVAL' || rc.recovery_score >= 80)
-    .slice(0, 5);
+  const loadTrend = useCallback(async () => {
+    setTrendLoading(true);
+    try {
+      const t = await api.getRecoveryTrends(trendPeriod);
+      setTrend(t);
+    } catch {
+      // non-fatal
+    } finally {
+      setTrendLoading(false);
+    }
+  }, [trendPeriod]);
 
-  const highConfidenceCases = recoveryCases.filter((c) => c.recovery_score >= 80);
-  const alternateMethodCases = highConfidenceCases.filter((c) =>
-    c.current_strategy?.includes('ALTERNATE') ||
-    c.current_strategy?.includes('UPI') ||
-    c.customer_intent?.includes('ALTERNATE')
-  );
-  const alternateMethodPct = highConfidenceCases.length > 0
-    ? Math.round((alternateMethodCases.length / highConfidenceCases.length) * 100)
-    : null;
+  useEffect(() => { loadAnalytics(); }, [loadAnalytics]);
+  useEffect(() => { loadTrend(); }, [loadTrend]);
 
-  // Find the best active case to run autonomous recovery on
   const bestCase = recoveryCases
-    .filter((rc) => !['RECOVERED', 'FAILED', 'EXPIRED'].includes(rc.status))
+    .filter(rc => !['RECOVERED', 'FAILED', 'EXPIRED'].includes(rc.status))
     .sort((a, b) => (b.recovery_score ?? 0) - (a.recovery_score ?? 0))[0];
 
   const handleRunAutonomous = async () => {
     if (!bestCase) {
-      setAutoError('No active recovery case found. Run a simulation demo first to create a case.');
+      setAutoError('No active recovery case. Run a demo simulation first.');
       setPanelOpen(true);
       return;
     }
@@ -82,9 +270,12 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
     try {
       const result = await api.runAutonomousRecovery(bestCase.id);
       setAutoResult(result);
+      success('Autonomous recovery pipeline completed');
       onRefresh?.();
+      loadAnalytics();
     } catch (err: any) {
-      setAutoError(err.message || 'Autonomous recovery pipeline failed.');
+      showError(err.message || 'Autonomous recovery failed');
+      setAutoError(err.message || 'Pipeline failed');
     } finally {
       setAutoRunning(false);
     }
@@ -94,453 +285,270 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
     if (!autoResult) return;
     try {
       await api.approveCase(autoResult.case_id);
-      const status = await api.getAutonomousStatus(autoResult.case_id);
-      setAutoResult(prev =>
-        prev
-          ? {
-              ...prev,
-              final_status:
-                status.status === 'RECOVERED' ? 'RECOVERED' : prev.final_status,
-              requires_human_approval: false
-            }
-          : prev
-      );
+      success('Recovery approved');
+      setAutoResult(prev => prev ? { ...prev, requires_human_approval: false } : prev);
       onRefresh?.();
-    } catch (err: any) {
-      setAutoError(err.message);
-    }
+    } catch (err: any) { showError(err.message); }
   };
 
   const handleReject = async () => {
     if (!autoResult) return;
     try {
-      await api.rejectCase(autoResult.case_id, 'Rejected from Autonomous Recovery Panel');
-      setAutoResult(prev =>
-        prev ? { ...prev, final_status: 'FAILED', requires_human_approval: false } : prev
-      );
+      await api.rejectCase(autoResult.case_id, 'Rejected from dashboard');
+      setAutoResult(prev => prev ? { ...prev, final_status: 'FAILED', requires_human_approval: false } : prev);
       onRefresh?.();
-    } catch (err: any) {
-      setAutoError(err.message);
-    }
+    } catch (err: any) { showError(err.message); }
   };
 
-  const handleConfirmSettlement = async () => {
+  const handleSettle = async () => {
     if (!autoResult) return;
     try {
       await api.confirmSettlement(autoResult.case_id);
+      success('Settlement confirmed — revenue recovered!');
       setAutoResult(prev => prev ? { ...prev, final_status: 'RECOVERED' } : prev);
       onRefresh?.();
-    } catch (err: any) {
-      setAutoError(err.message);
-    }
+      loadAnalytics();
+    } catch (err: any) { showError(err.message); }
   };
 
+  const ov = overview;
+  const isLoading = overviewLoading;
+
   return (
-    <div className="space-y-6 animate-fadeIn">
-      {/* Top Banner / Pulse */}
-      <div className="p-4 rounded-2xl bg-gradient-to-r from-dark-850 via-dark-800 to-dark-850 border border-dark-700 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+    <div className="space-y-5 animate-fadeIn">
+
+      {/* System Status */}
+      <SystemStatusBar status={systemStatus} />
+
+      {/* Top Actions Banner */}
+      <div className="p-4 rounded-xl bg-dark-850 border border-dark-700 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-brand-cyan/10 border border-brand-cyan/20 flex items-center justify-center text-brand-cyan">
-            <Bot className="w-5 h-5" />
+          <div className="w-9 h-9 rounded-lg bg-brand-cyan/10 border border-brand-cyan/20 flex items-center justify-center">
+            <Bot className="w-4 h-4 text-brand-cyan" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white flex items-center gap-2">
-              Autonomous Recovery Engine Active
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                84.6% Avg Win Rate
+            <h2 className="text-sm font-bold text-white">
+              Autonomous Recovery Engine
+              <span className="ml-2 text-[10px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                {ov ? `${ov.ai_automation_rate.toFixed(0)}% Automation` : 'ACTIVE'}
               </span>
             </h2>
-            <p className="text-xs text-slate-400">
-              Actively monitoring Razorpay Test webhooks &amp; executing multi-agent recovery workflows.
-            </p>
+            <p className="text-xs text-slate-400">Multi-agent pipeline monitoring Razorpay Test webhooks.</p>
           </div>
         </div>
-
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          {/* Phase 6: Autonomous Recovery CTA */}
+        <div className="flex items-center gap-2">
           <button
-            id="btn-run-autonomous"
             onClick={handleRunAutonomous}
             disabled={autoRunning}
-            className="w-full md:w-auto px-4 py-2 bg-gradient-to-r from-violet-600 to-brand-cyan text-white font-bold text-xs rounded-lg hover:opacity-90 transition flex items-center justify-center gap-1.5 disabled:opacity-60"
+            className="px-3.5 py-2 bg-gradient-to-r from-violet-600 to-brand-cyan text-white font-bold text-xs rounded-lg hover:opacity-90 transition flex items-center gap-1.5 disabled:opacity-60"
           >
-            {autoRunning ? (
-              <>
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                Running Pipeline…
-              </>
-            ) : (
-              <>
-                <Zap className="w-3.5 h-3.5" />
-                ⚡ Run Autonomous Recovery
-              </>
-            )}
+            {autoRunning ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Running…</> : <><Zap className="w-3.5 h-3.5" />⚡ Autonomous Recovery</>}
           </button>
-
           <button
             onClick={onOpenSimulate}
-            className="w-full md:w-auto px-4 py-2 bg-gradient-to-r from-brand-cyan to-brand-blue text-dark-900 font-bold text-xs rounded-lg hover:opacity-90 transition flex items-center justify-center gap-1.5"
+            className="px-3.5 py-2 bg-dark-800 border border-dark-600 hover:border-brand-cyan/40 text-slate-200 font-bold text-xs rounded-lg transition flex items-center gap-1.5"
           >
-            <Zap className="w-3.5 h-3.5 fill-dark-900" />
-            Run Recovery Demo
+            <Sparkles className="w-3.5 h-3.5 text-brand-cyan" />
+            Demo Simulation
+          </button>
+          <button onClick={() => { onRefresh?.(); loadAnalytics(); }} className="p-2 text-slate-400 hover:text-brand-cyan rounded-lg hover:bg-dark-800 transition">
+            <RefreshCw className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Phase 6: Autonomous Pipeline Result Panel */}
+      {/* Autonomous Recovery Panel */}
       {panelOpen && (
-        <div className="rounded-2xl border border-brand-cyan/20 bg-dark-900 overflow-hidden">
-          <button
-            onClick={() => setPanelOpen((p) => !p)}
-            className="w-full flex items-center justify-between px-5 py-3 border-b border-dark-700 hover:bg-dark-800/50 transition"
-          >
+        <div className="rounded-xl border border-brand-cyan/20 bg-dark-900 overflow-hidden">
+          <button onClick={() => setPanelOpen(p => !p)}
+            className="w-full flex items-center justify-between px-5 py-3 border-b border-dark-700 hover:bg-dark-800/50 transition">
             <div className="flex items-center gap-2">
-              <Zap className="w-4 h-4 text-brand-cyan" />
+              <Zap className="w-3.5 h-3.5 text-brand-cyan" />
               <span className="text-xs font-bold text-white">Autonomous Recovery Engine</span>
-              {autoRunning && (
-                <span className="text-[9px] font-mono px-2 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 animate-pulse">
-                  PIPELINE RUNNING
-                </span>
-              )}
+              {autoRunning && <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20 animate-pulse">RUNNING</span>}
               {autoResult && !autoRunning && (
-                <span
-                  className={`text-[9px] font-mono px-2 py-0.5 rounded border ${
-                    autoResult.final_status === 'RECOVERED'
-                      ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                      : autoResult.final_status === 'AWAITING_HUMAN_APPROVAL'
-                      ? 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-                      : 'bg-brand-cyan/10 text-brand-cyan border-brand-cyan/20'
-                  }`}
-                >
-                  {autoResult.final_status}
-                </span>
+                <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${
+                  autoResult.final_status === 'RECOVERED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                  autoResult.final_status === 'AWAITING_HUMAN_APPROVAL' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                  'bg-brand-cyan/10 text-brand-cyan border-brand-cyan/20'
+                }`}>{autoResult.final_status}</span>
               )}
             </div>
-            {panelOpen ? (
-              <ChevronUp className="w-4 h-4 text-slate-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-slate-400" />
-            )}
+            {panelOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
           </button>
-
           <div className="p-5">
-            {/* Loading skeleton */}
             {autoRunning && !autoResult && (
-              <div className="flex flex-col items-center justify-center py-10 gap-3">
-                <Loader2 className="w-8 h-8 animate-spin text-brand-cyan" />
-                <div className="text-sm font-bold text-white">
-                  Running 6-Stage Autonomous Pipeline…
-                </div>
-                <div className="text-xs text-slate-400">
-                  Investigate → Intent → Strategy → Guardrail → Execute → Settle
-                </div>
-                <div className="flex gap-1.5 mt-2 flex-wrap justify-center">
-                  {['INVESTIGATE', 'INTENT', 'STRATEGY', 'GUARDRAIL', 'EXECUTE', 'SETTLE'].map(
-                    (s, i) => (
-                      <span
-                        key={s}
-                        className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-dark-800 border border-dark-700 text-slate-500 animate-pulse"
-                        style={{ animationDelay: `${i * 120}ms` }}
-                      >
-                        {s}
-                      </span>
-                    )
-                  )}
+              <div className="flex flex-col items-center py-10 gap-3">
+                <Loader2 className="w-7 h-7 animate-spin text-brand-cyan" />
+                <div className="text-sm font-bold text-white">Running 6-Stage Pipeline…</div>
+                <div className="flex gap-1 mt-1">
+                  {['INVESTIGATE','INTENT','STRATEGY','GUARDRAIL','EXECUTE','SETTLE'].map((s, i) => (
+                    <span key={s} className="text-[9px] font-mono px-1 py-0.5 rounded bg-dark-800 border border-dark-700 text-slate-500 animate-pulse" style={{ animationDelay: `${i * 120}ms` }}>{s}</span>
+                  ))}
                 </div>
               </div>
             )}
-
-            {/* Error state */}
             {autoError && (
               <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/25 text-xs text-rose-300">
-                <div className="font-bold mb-1">Pipeline Error</div>
-                {autoError}
+                <div className="font-bold mb-1">Error</div>{autoError}
               </div>
             )}
-
-            {/* Result panel */}
             {autoResult && (
-              <AutonomousPipelinePanel
-                result={autoResult}
-                isLoading={autoRunning}
-                onApprove={handleApprove}
-                onReject={handleReject}
-                onConfirmSettlement={handleConfirmSettlement}
-              />
+              <AutonomousPipelinePanel result={autoResult} isLoading={autoRunning}
+                onApprove={handleApprove} onReject={handleReject} onConfirmSettlement={handleSettle} />
             )}
           </div>
         </div>
       )}
 
-      {/* 4 Primary Metrics Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MetricCard
-          label="Revenue Processed"
-          value={`₹${(metrics.revenue_processed / 1000).toFixed(1)}k`}
-          subValue="Gross volume processed"
-          icon={IndianRupee}
-          variant="default"
-        />
-        <MetricCard
-          label="Revenue At Risk"
-          value={`₹${(metrics.revenue_at_risk / 1000).toFixed(1)}k`}
-          change={`${metrics.failed_payments_count} Failed Orders`}
-          icon={AlertTriangle}
-          variant="rose"
-        />
-        <MetricCard
-          label="Predicted Recoverable"
-          value={`₹${(metrics.predicted_recoverable / 1000).toFixed(1)}k`}
-          subValue={`${metrics.active_recoveries_count} Active recovery flows`}
-          icon={Sparkles}
-          variant="cyan"
-        />
-        <MetricCard
-          label="Revenue Recovered"
-          value={`₹${(metrics.revenue_recovered / 1000).toFixed(1)}k`}
-          change={`${metrics.recovery_rate}% Recovery Rate`}
-          isPositive={true}
-          icon={CheckCircle2}
-          variant="emerald"
-        />
+      {/* 8 KPI Cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <KpiCard label="Revenue at Risk" value={ov ? `₹${(ov.revenue_at_risk/1000).toFixed(1)}k` : '—'} icon={AlertTriangle} accent="rose" loading={isLoading} sub={ov ? `${ov.failed_payments_count} failed payments` : undefined} />
+        <KpiCard label="Recovered" value={ov ? `₹${(ov.revenue_recovered/1000).toFixed(1)}k` : '—'} icon={CheckCircle2} accent="emerald" loading={isLoading} trend={ov ? { value: 1, label: `${ov.recovery_rate.toFixed(1)}% rate` } : undefined} />
+        <KpiCard label="Predicted Recoverable" value={ov ? `₹${(ov.predicted_recoverable/1000).toFixed(1)}k` : '—'} icon={Sparkles} accent="cyan" loading={isLoading} sub={ov ? `${ov.active_cases_count} active cases` : undefined} />
+        <KpiCard label="Processed" value={metrics ? `₹${(metrics.revenue_processed/1000).toFixed(1)}k` : '—'} icon={IndianRupee} accent="indigo" loading={!metrics} />
+        <KpiCard label="Avg Recovery Score" value={ov ? `${ov.average_recovery_score.toFixed(0)}/100` : '—'} icon={Target} accent="amber" loading={isLoading} />
+        <KpiCard label="Active Cases" value={ov ? ov.active_cases_count : '—'} icon={Activity} accent="violet" loading={isLoading} sub={ov ? `${ov.awaiting_approval_count} awaiting approval` : undefined} />
+        <KpiCard label="Recovery Attempts" value={ov ? ov.total_recovery_attempts : '—'} icon={BarChart3} accent="indigo" loading={isLoading} />
+        <KpiCard label="AI Automation" value={ov ? `${ov.ai_automation_rate.toFixed(0)}%` : '—'} icon={Bot} accent="cyan" loading={isLoading} sub={ov ? `${ov.total_agent_actions} agent actions` : undefined} />
       </div>
 
-      {/* Charts & Pipeline Funnel */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Area Chart */}
-        <div className="lg:col-span-2 p-5 rounded-2xl bg-dark-850 border border-dark-700 flex flex-col justify-between">
+      {/* Trend Chart + Funnel */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* Trend Chart */}
+        <div className="lg:col-span-2 p-5 rounded-xl bg-dark-850 border border-dark-700">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-bold text-white">Recovery Velocity Trend</h3>
-              <p className="text-xs text-slate-400">Daily failed revenue vs autonomously recovered INR</p>
+              <h3 className="text-sm font-bold text-white">Recovery Trend</h3>
+              <p className="text-[11px] text-slate-500">Failed vs recovered revenue over time</p>
             </div>
-            <div className="flex items-center gap-3 text-xs">
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-rose-500" />
-                <span className="text-slate-400">At Risk</span>
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-brand-cyan" />
-                <span className="text-slate-400">Recovered</span>
-              </div>
-            </div>
-          </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={metrics.monthly_trend}>
-                <defs>
-                  <linearGradient id="recovGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#00F0FF" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#00F0FF" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="riskGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#F43F5E" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1C2538" vertical={false} />
-                <XAxis dataKey="day" stroke="#64748B" fontSize={11} tickLine={false} />
-                <YAxis
-                  stroke="#64748B"
-                  fontSize={11}
-                  tickLine={false}
-                  tickFormatter={(val) => `₹${val / 1000}k`}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#111622',
-                    borderColor: '#2A364F',
-                    borderRadius: '8px',
-                    fontSize: '12px'
-                  }}
-                  formatter={(val: any) => [`₹${Number(val).toLocaleString()}`, '']}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="at_risk"
-                  stroke="#F43F5E"
-                  fillOpacity={1}
-                  fill="url(#riskGradient)"
-                  strokeWidth={2}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="recovered"
-                  stroke="#00F0FF"
-                  fillOpacity={1}
-                  fill="url(#recovGradient)"
-                  strokeWidth={2.5}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Pipeline Funnel */}
-        <div className="p-5 rounded-2xl bg-dark-850 border border-dark-700 flex flex-col justify-between">
-          <div>
-            <h3 className="text-sm font-bold text-white mb-1">Autonomous Pipeline</h3>
-            <p className="text-xs text-slate-400 mb-4">Stage-by-stage recovery funnel</p>
-            <div className="space-y-3">
-              {metrics.recovery_pipeline.map((stage) => (
-                <div key={stage.stage} className="p-3 rounded-xl bg-dark-800 border border-dark-700">
-                  <div className="flex items-center justify-between text-xs mb-1">
-                    <span className="font-semibold text-slate-300">{stage.stage}</span>
-                    <span className="font-mono text-brand-cyan font-bold">
-                      ₹{Math.round(stage.value).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="w-full h-1.5 bg-dark-900 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-brand-cyan to-brand-emerald rounded-full"
-                      style={{
-                        width: `${Math.min(
-                          100,
-                          Math.max(
-                            15,
-                            (stage.value /
-                              (metrics.revenue_at_risk + metrics.revenue_recovered || 1)) *
-                              100
-                          )
-                        )}%`
-                      }}
-                    />
-                  </div>
-                  <div className="text-[10px] text-slate-500 mt-1">{stage.count} cases handled</div>
-                </div>
+            <div className="flex gap-1">
+              {(['7d', '30d', '90d'] as TrendPeriod[]).map(p => (
+                <button key={p} onClick={() => setTrendPeriod(p)}
+                  className={`text-[10px] font-mono px-2 py-1 rounded transition ${trendPeriod === p ? 'bg-brand-cyan/20 text-brand-cyan border border-brand-cyan/30' : 'text-slate-500 hover:text-slate-300'}`}>
+                  {p}
+                </button>
               ))}
             </div>
           </div>
-          <div className="mt-4 p-3 rounded-xl bg-brand-indigo/10 border border-brand-indigo/20 flex items-center justify-between">
-            <span className="text-xs text-indigo-300 font-semibold">Human Review Queue</span>
-            <span className="text-xs font-mono font-bold px-2 py-0.5 rounded bg-brand-indigo/30 text-white">
-              {metrics.human_review_queue_count} Pending
-            </span>
+          {trendLoading ? (
+            <div className="h-56 bg-dark-800 animate-pulse rounded-xl" />
+          ) : (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={trend?.data || []}>
+                  <defs>
+                    <linearGradient id="cg1" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#00F0FF" stopOpacity={0.25} />
+                      <stop offset="95%" stopColor="#00F0FF" stopOpacity={0} />
+                    </linearGradient>
+                    <linearGradient id="cg2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#F43F5E" stopOpacity={0.2} />
+                      <stop offset="95%" stopColor="#F43F5E" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1C2538" vertical={false} />
+                  <XAxis dataKey="date" stroke="#475569" fontSize={10} tickLine={false}
+                    tickFormatter={d => d.slice(5)} />
+                  <YAxis stroke="#475569" fontSize={10} tickLine={false}
+                    tickFormatter={v => `₹${(v/1000).toFixed(0)}k`} />
+                  <Tooltip contentStyle={{ backgroundColor: '#111622', borderColor: '#2A364F', borderRadius: '8px', fontSize: '11px' }}
+                    formatter={(v: any) => [`₹${Number(v).toLocaleString()}`, '']} labelFormatter={l => `Date: ${l}`} />
+                  <Area type="monotone" dataKey="at_risk" name="At Risk" stroke="#F43F5E" fill="url(#cg2)" strokeWidth={1.5} />
+                  <Area type="monotone" dataKey="recovered_amount" name="Recovered" stroke="#00F0FF" fill="url(#cg1)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          <div className="flex gap-4 mt-2">
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400"><div className="w-2.5 h-0.5 bg-rose-500" />At Risk</div>
+            <div className="flex items-center gap-1.5 text-[10px] text-slate-400"><div className="w-2.5 h-0.5 bg-brand-cyan" />Recovered</div>
           </div>
+        </div>
+
+        {/* Recovery Funnel */}
+        <div className="p-5 rounded-xl bg-dark-850 border border-dark-700">
+          <h3 className="text-sm font-bold text-white mb-1">Recovery Funnel</h3>
+          <p className="text-[11px] text-slate-500 mb-4">Pipeline conversion stages</p>
+          <RecoveryFunnel overview={ov} onFilter={f => onNavigate?.(f === 'RECOVERED' ? 'recovery-cases' : 'recovery-cases')} />
         </div>
       </div>
 
-      {/* High-Priority Queue & AI Insights */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* High Priority Queue */}
-        <div className="p-5 rounded-2xl bg-dark-850 border border-dark-700">
+      {/* Opportunities + High Priority */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        {/* AI Opportunities */}
+        <div className="p-5 rounded-xl bg-dark-850 border border-dark-700">
           <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-sm font-bold text-white">High-Priority Recoveries</h3>
-              <p className="text-xs text-slate-400">
-                Transactions with highest recoverable intent &amp; value
-              </p>
+              <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                AI Recovery Opportunities
+                {opportunities.length > 0 && (
+                  <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">
+                    {opportunities.length} detected
+                  </span>
+                )}
+              </h3>
+              <p className="text-[11px] text-slate-500">Highest-value active cases by AI score</p>
             </div>
+            <button onClick={() => onNavigate?.('recovery-cases')} className="text-[10px] text-brand-cyan hover:underline">View all →</button>
           </div>
-          <div className="space-y-2.5">
-            {highPriorityCases.map((rc) => {
-              const payment = rc.payment || payments.find((p) => p.id === rc.payment_id);
-              return (
-                <div
-                  key={rc.id}
-                  onClick={() => payment && onSelectPayment(payment)}
-                  className="p-3.5 rounded-xl bg-dark-800 hover:bg-dark-750 border border-dark-700 hover:border-brand-cyan/40 cursor-pointer transition flex items-center justify-between"
-                >
-                  <div className="flex items-center gap-3">
-                    <RecoveryScore score={rc.recovery_score} size="md" />
-                    <div>
-                      <div className="text-xs font-bold text-white flex items-center gap-2">
-                        {payment?.customer?.name || 'Customer'}
-                        <span className="text-slate-400 font-normal">
-                          ({payment?.payment_method})
-                        </span>
-                      </div>
-                      <div className="text-[11px] text-slate-400 font-mono">
-                        {payment?.failure_reason || 'CARD_DECLINED'} • Intent:{' '}
-                        {rc.customer_intent || 'ALTERNATE_METHOD'}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-xs font-bold font-mono text-white">
-                      ₹{payment?.amount.toLocaleString() || '12,999'}
-                    </div>
-                    <StatusBadge status={rc.status} />
-                  </div>
-                </div>
-              );
-            })}
-            {highPriorityCases.length === 0 && (
-              <div className="text-xs text-slate-500 text-center py-6">
-                No high-priority cases. Run a simulation demo to create recovery cases.
-              </div>
-            )}
-          </div>
+          {opportunities.length === 0 ? (
+            <div className="text-center py-8">
+              <Sparkles className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+              <div className="text-xs text-slate-500">No opportunities detected.<br />Run a simulation to create cases.</div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {opportunities.map(opp => (
+                <OpportunityCard key={opp.case_id} opp={opp}
+                  onView={() => {
+                    const payment = payments.find(p => p.id === opp.payment_id);
+                    if (payment) onSelectPayment(payment);
+                  }} />
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* AI Recovery Insights */}
-        <div className="p-5 rounded-2xl bg-dark-850 border border-dark-700 flex flex-col justify-between space-y-4">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <Sparkles className="w-4 h-4 text-brand-cyan" />
-              <h3 className="text-sm font-bold text-white">AI Recovery Insights</h3>
+        {/* High Priority Queue */}
+        <div className="p-5 rounded-xl bg-dark-850 border border-dark-700">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-white">Priority Queue</h3>
+              <p className="text-[11px] text-slate-500">Cases requiring immediate attention</p>
             </div>
-            <p className="text-xs text-slate-400 mb-3">
-              Live intelligence computed by AI Payment Investigator
-            </p>
-
-            <div className="p-4 rounded-xl bg-gradient-to-r from-brand-cyan/15 via-dark-800 to-dark-800 border border-brand-cyan/30 space-y-2 mb-3">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-brand-cyan uppercase tracking-wider font-mono">
-                  Autonomous Opportunity
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 font-bold">
-                  {recoveryCases.filter((c) => c.recovery_score >= 80).length} High-Yield Cases
-                </span>
-              </div>
-              <p className="text-xs text-slate-200 leading-relaxed font-medium">
-                <strong className="text-brand-cyan">
-                  {recoveryCases.filter((c) => c.recovery_score >= 80).length} failed payments
-                </strong>{' '}
-                have <strong>&gt;80% predicted recovery probability</strong>.
-              </p>
-              <div className="flex items-baseline gap-2 pt-1">
-                <span className="text-[11px] text-slate-400">Estimated Recoverable Revenue:</span>
-                <span className="text-base font-black font-mono text-emerald-400">
-                  ₹{metrics.predicted_recoverable.toLocaleString()}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-2.5">
-              {alternateMethodPct !== null && (
-                <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
-                  <div className="text-xs font-bold text-emerald-400 mb-0.5">
-                    AI Recovery Strategist Telemetry
+            <button onClick={() => onNavigate?.('recovery-cases')} className="text-[10px] text-brand-cyan hover:underline">Manage →</button>
+          </div>
+          <div className="space-y-2">
+            {recoveryCases
+              .filter(rc => !['RECOVERED','FAILED','EXPIRED'].includes(rc.status))
+              .sort((a, b) => (b.recovery_score ?? 0) - (a.recovery_score ?? 0))
+              .slice(0, 5)
+              .map(rc => {
+                const payment = rc.payment || payments.find(p => p.id === rc.payment_id);
+                return (
+                  <div key={rc.id} onClick={() => payment && onSelectPayment(payment)}
+                    className="p-3 rounded-xl bg-dark-800 hover:bg-dark-750 border border-dark-700 hover:border-brand-cyan/30 cursor-pointer transition flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <RecoveryScore score={rc.recovery_score} size="md" />
+                      <div>
+                        <div className="text-xs font-bold text-white">{payment?.customer?.name || 'Customer'}</div>
+                        <div className="text-[10px] text-slate-500 font-mono">{payment?.failure_reason} · {rc.customer_intent || '—'}</div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xs font-mono font-bold text-white">₹{payment?.amount.toLocaleString()}</div>
+                      <StatusBadge status={rc.status} />
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-300 leading-relaxed">
-                    AI recommends alternate payment methods for{' '}
-                    <strong className="text-emerald-400">{alternateMethodPct}%</strong> of
-                    high-confidence recoverable cases.
-                  </p>
-                </div>
-              )}
-
-              <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
-                <div className="text-xs font-bold text-brand-cyan mb-0.5">
-                  1. Card 3DS Failures ➔ 1-Click WhatsApp UPI
-                </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Card transactions have a 42% 3DS drop-off rate. Switching to WhatsApp UPI
-                  deep-links recovers 89.2% of these orders.
-                </p>
+                );
+              })}
+            {recoveryCases.filter(rc => !['RECOVERED','FAILED','EXPIRED'].includes(rc.status)).length === 0 && (
+              <div className="text-center py-8 text-xs text-slate-500">
+                <CheckCircle2 className="w-7 h-7 text-emerald-400 mx-auto mb-2" />
+                No active cases. Run a simulation to begin.
               </div>
-
-              <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
-                <div className="text-xs font-bold text-brand-emerald mb-0.5">
-                  2. High-Value Escalation Guardrail Active
-                </div>
-                <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Orders over ₹50,000 are automatically protected with Merchant Human Approval
-                  before customer dispatch.
-                </p>
-              </div>
-            </div>
+            )}
           </div>
         </div>
       </div>

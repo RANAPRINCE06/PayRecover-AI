@@ -8,6 +8,8 @@ from app.core.config import settings
 from app.db.session import engine, Base
 from app.db.seed_data import seed_database
 from app.api.routes import router as api_router
+from app.api.analytics import router as analytics_router
+from app.api.system_status import router as system_router
 
 # Setup logging
 logging.basicConfig(
@@ -59,6 +61,8 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 # Mount API routes under /api
 app.include_router(api_router, prefix="/api")
+app.include_router(analytics_router, prefix="/api/analytics")
+app.include_router(system_router, prefix="/api/system")
 
 
 @app.get("/")

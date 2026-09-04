@@ -8,7 +8,15 @@ import {
   RecoveryStrategyResult,
   ToolExecutionRequest,
   ToolExecutionResult,
-  AutonomousRecoveryResult
+  AutonomousRecoveryResult,
+  AnalyticsOverview,
+  RecoveryTrend,
+  FailureAnalytics,
+  PaymentMethodStat,
+  CustomerSegmentStat,
+  StrategyStat,
+  RecoveryOpportunity,
+  SystemStatus
 } from '../types';
 
 const API_BASE = '/api';
@@ -102,6 +110,12 @@ export const api = {
       body: JSON.stringify({ scenario_type: scenarioType, amount })
     }),
 
+  simulateRecovery: (scenarioType: string = 'DEMO_CARD_DECLINE_UPI', amount: number = 12999) =>
+    request<any>('/recovery/simulate', {
+      method: 'POST',
+      body: JSON.stringify({ scenario_type: scenarioType, amount })
+    }),
+
   executeRecovery: (caseId: string, payload?: ToolExecutionRequest) =>
     request<ToolExecutionResult>(`/recovery/${caseId}/execute`, {
       method: 'POST',
@@ -120,7 +134,7 @@ export const api = {
   confirmSettlement: (caseId: string) =>
     request<any>(`/recovery/${caseId}/confirm-settlement`, { method: 'POST' }),
 
-  // Phase 6: Autonomous Recovery Engine
+  // Phase 6: Autonomous Recovery
   runAutonomousRecovery: (caseId: string, customerMessage?: string) =>
     request<AutonomousRecoveryResult>(`/recovery/${caseId}/autonomous`, {
       method: 'POST',
@@ -128,5 +142,27 @@ export const api = {
     }),
 
   getAutonomousStatus: (caseId: string) =>
-    request<Record<string, any>>(`/recovery/${caseId}/autonomous/status`)
+    request<Record<string, any>>(`/recovery/${caseId}/autonomous/status`),
+
+  // Phase 7: Analytics
+  getAnalyticsOverview: () => request<AnalyticsOverview>('/analytics/overview'),
+
+  getRecoveryTrends: (period: '7d' | '30d' | '90d' = '7d') =>
+    request<RecoveryTrend>(`/analytics/trends?period=${period}`),
+
+  getFailureAnalytics: () => request<FailureAnalytics>('/analytics/failures'),
+
+  getPaymentMethodAnalytics: () =>
+    request<{ methods: PaymentMethodStat[] }>('/analytics/payment-methods'),
+
+  getCustomerSegmentAnalytics: () =>
+    request<{ segments: CustomerSegmentStat[] }>('/analytics/customer-segments'),
+
+  getStrategyAnalytics: () =>
+    request<{ strategies: StrategyStat[] }>('/analytics/strategies'),
+
+  getRecoveryOpportunities: (limit = 10) =>
+    request<{ opportunities: RecoveryOpportunity[] }>(`/analytics/opportunities?limit=${limit}`),
+
+  getSystemStatus: () => request<SystemStatus>('/system/status'),
 };
