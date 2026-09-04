@@ -15,9 +15,19 @@ import {
   Loader2,
   MessageSquare,
   Send,
-  UserCheck
+  UserCheck,
+  Compass,
+  ShieldCheck,
+  Lock,
+  Scale
 } from 'lucide-react';
-import { Payment, RecoveryCase, PaymentInvestigationResult, CustomerIntentResult } from '../types';
+import {
+  Payment,
+  RecoveryCase,
+  PaymentInvestigationResult,
+  CustomerIntentResult,
+  RecoveryStrategyResult
+} from '../types';
 import { StatusBadge } from './StatusBadge';
 import { RecoveryScore } from './RecoveryScore';
 import { api } from '../services/api';
@@ -32,6 +42,7 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
   const [recoveryCase, setRecoveryCase] = useState<RecoveryCase | null>(null);
   const [investigation, setInvestigation] = useState<PaymentInvestigationResult | null>(null);
   const [intentResult, setIntentResult] = useState<CustomerIntentResult | null>(null);
+  const [strategyResult, setStrategyResult] = useState<RecoveryStrategyResult | null>(null);
   
   // Inputs & loaders
   const [customerMessage, setCustomerMessage] = useState("My card isn't working. Can I use UPI?");
@@ -39,9 +50,11 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
   const [loading, setLoading] = useState(false);
   const [investigating, setInvestigating] = useState(false);
   const [intentLoading, setIntentLoading] = useState(false);
+  const [strategyLoading, setStrategyLoading] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [investigationError, setInvestigationError] = useState<string | null>(null);
   const [intentError, setIntentError] = useState<string | null>(null);
+  const [strategyError, setStrategyError] = useState<string | null>(null);
 
   const loadCaseData = () => {
     if (!payment) return;
@@ -57,8 +70,10 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
   useEffect(() => {
     setInvestigation(null);
     setIntentResult(null);
+    setStrategyResult(null);
     setInvestigationError(null);
     setIntentError(null);
+    setStrategyError(null);
     loadCaseData();
   }, [payment]);
 
@@ -101,6 +116,25 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
       setIntentError(err.message || 'Intent analysis failed');
     } finally {
       setIntentLoading(false);
+    }
+  };
+
+  const handleGenerateStrategy = async () => {
+    if (!recoveryCase) {
+      setStrategyError("Recovery case not found. Please run payment investigation first.");
+      return;
+    }
+    setStrategyLoading(true);
+    setStrategyError(null);
+    try {
+      const result: RecoveryStrategyResult = await api.generateRecoveryStrategy(recoveryCase.id);
+      setStrategyResult(result);
+      loadCaseData();
+      onRefresh();
+    } catch (err: any) {
+      setStrategyError(err.message || 'Strategy generation failed');
+    } finally {
+      setStrategyLoading(false);
     }
   };
 
@@ -508,6 +542,240 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
                 <div className="p-3.5 rounded-xl bg-dark-900/50 border border-dark-750 text-xs text-slate-300 leading-relaxed font-sans">
                   <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Reasoning Narrative:</span>
                   {intentResult.reasoning_summary}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3. AI Recovery Strategist Section (PHASE 4) */}
+          <div className="p-5 rounded-2xl bg-gradient-to-br from-dark-800 via-dark-750 to-dark-800 border border-emerald-500/30 shadow-glow-emerald/10 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <Compass className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
+                    AI Recovery Strategist
+                    <span className="text-[10px] font-mono px-1.5 py-0.2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded">
+                      Advisory Only
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-slate-400">Synthesizes investigation, intent & deterministic guardrails</p>
+                </div>
+              </div>
+
+              <button
+                onClick={handleGenerateStrategy}
+                disabled={strategyLoading}
+                className="px-3.5 py-1.5 bg-gradient-to-r from-emerald-400 to-teal-500 text-dark-900 font-bold text-xs rounded-lg shadow-glow-emerald hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {strategyLoading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Formulating Strategy...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 fill-dark-900" />
+                    <span>{strategyResult ? 'Re-Generate Strategy' : 'Generate Recovery Strategy'}</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {strategyError && (
+              <div className="p-3 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between">
+                <span>{strategyError}</span>
+                <button onClick={handleGenerateStrategy} className="underline text-white font-semibold">
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {strategyResult && (
+              <div className="space-y-4 pt-1 animate-fadeIn">
+                {/* 4 Core Decision Highlight Cards */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400">Primary Strategy</span>
+                    <div className="text-xs font-bold font-mono text-emerald-400 mt-1">
+                      {strategyResult.primary_strategy}
+                    </div>
+                    {strategyResult.secondary_strategy && (
+                      <span className="text-[10px] text-slate-500 block mt-0.5">
+                        Fallback: {strategyResult.secondary_strategy}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400">Channel & Method</span>
+                    <div className="text-xs font-bold font-mono text-brand-cyan mt-1">
+                      {strategyResult.recommended_channel} • {strategyResult.recommended_payment_method || 'UPI'}
+                    </div>
+                    <span className="text-[10px] text-slate-500 block mt-0.5">
+                      Delay: {strategyResult.recommended_delay_minutes}m
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400">Recovery Probability</span>
+                    <div className="text-lg font-bold font-mono text-white mt-0.5">
+                      {(strategyResult.expected_recovery_probability * 100).toFixed(0)}%
+                    </div>
+                    <span className="text-[10px] text-slate-400 block">
+                      Confidence: {(strategyResult.strategy_confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+
+                  <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700">
+                    <span className="text-[10px] uppercase font-semibold text-slate-400">Guardrail Status</span>
+                    <div className="mt-1">
+                      <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold border ${
+                        strategyResult.guardrail_status === 'SAFE'
+                          ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                          : strategyResult.guardrail_status === 'CAPPED'
+                          ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                          : strategyResult.guardrail_status === 'APPROVAL_REQUIRED'
+                          ? 'bg-indigo-500/10 text-indigo-300 border-indigo-500/30'
+                          : 'bg-rose-500/10 text-rose-400 border-rose-500/30'
+                      }`}>
+                        {strategyResult.guardrail_status}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 text-[10px] font-semibold text-slate-400">
+                      Approval: {strategyResult.human_approval_required ? (
+                        <span className="text-rose-400 font-bold">REQUIRED</span>
+                      ) : (
+                        <span className="text-emerald-400 font-bold">NOT REQUIRED</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Guardrail Policy Evaluation Comparison Grid */}
+                <div className="p-4 rounded-xl bg-dark-900/90 border border-dark-700 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Scale className="w-4 h-4 text-emerald-400" />
+                    <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                      Guardrail Policy Evaluation & Enforcement
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div className="p-2.5 rounded-lg bg-dark-800 border border-dark-700">
+                      <span className="text-[10px] text-slate-400 uppercase block mb-1">Discount Policy</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold">Final Discount:</span>
+                        <span className="font-mono font-bold text-emerald-400">{strategyResult.discount_percentage}% (₹{strategyResult.discount_amount.toLocaleString()})</span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-dark-800 border border-dark-700">
+                      <span className="text-[10px] text-slate-400 uppercase block mb-1">Retry Quota</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold">Retry Count:</span>
+                        <span className="font-mono font-bold text-white">{strategyResult.retry_count}</span>
+                      </div>
+                    </div>
+
+                    <div className="p-2.5 rounded-lg bg-dark-800 border border-dark-700">
+                      <span className="text-[10px] text-slate-400 uppercase block mb-1">High-Value Check</span>
+                      <div className="flex items-center justify-between">
+                        <span className="text-slate-300 font-semibold">Human Gated:</span>
+                        <span className={`font-mono font-bold ${strategyResult.human_approval_required ? 'text-amber-400' : 'text-emerald-400'}`}>
+                          {strategyResult.human_approval_required ? 'YES (APPROVAL_REQUIRED)' : 'NO'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Active Constraints */}
+                  {strategyResult.guardrail_constraints && strategyResult.guardrail_constraints.length > 0 && (
+                    <div className="p-3 rounded-lg bg-dark-850 border border-dark-750 space-y-1.5">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+                        Active Guardrail Constraints Enforced:
+                      </span>
+                      <ul className="space-y-1 text-xs text-slate-300">
+                        {strategyResult.guardrail_constraints.map((c, i) => (
+                          <li key={i} className="flex items-start gap-2">
+                            <span className="text-emerald-400 font-bold">•</span>
+                            <span>{c}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {/* Strategy Narrative & Reasoning */}
+                <div className="p-3.5 rounded-xl bg-dark-900/80 border border-dark-700 space-y-2 text-xs">
+                  <div className="text-slate-200">
+                    <span className="text-slate-400 font-semibold">Strategy Summary:</span> {strategyResult.strategy_summary}
+                  </div>
+                  {strategyResult.approval_reason && (
+                    <div className="p-2 rounded bg-rose-500/10 border border-rose-500/20 text-rose-300 text-[11px]">
+                      <strong>Approval Reason:</strong> {strategyResult.approval_reason}
+                    </div>
+                  )}
+                </div>
+
+                {/* Supporting Factors, Risk Factors & Rejected Strategies */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {strategyResult.supporting_factors && strategyResult.supporting_factors.length > 0 && (
+                    <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700 space-y-1.5 text-xs">
+                      <span className="font-bold text-slate-300 uppercase tracking-wide text-[10px]">
+                        Supporting Factors
+                      </span>
+                      <ul className="space-y-1 text-slate-300">
+                        {strategyResult.supporting_factors.map((f, idx) => (
+                          <li key={idx} className="flex items-start gap-1.5">
+                            <span className="text-emerald-400 font-bold">•</span>
+                            <span>{f}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {strategyResult.risk_factors && strategyResult.risk_factors.length > 0 && (
+                    <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700 space-y-1.5 text-xs">
+                      <span className="font-bold text-slate-300 uppercase tracking-wide text-[10px]">
+                        Identified Risk Factors
+                      </span>
+                      <ul className="space-y-1 text-slate-300">
+                        {strategyResult.risk_factors.map((rf, idx) => (
+                          <li key={idx} className="flex items-start gap-1.5">
+                            <span className="text-rose-400 font-bold">•</span>
+                            <span>{rf}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+
+                {strategyResult.rejected_strategies && strategyResult.rejected_strategies.length > 0 && (
+                  <div className="p-3 rounded-xl bg-dark-900/80 border border-dark-700 space-y-1.5 text-xs">
+                    <span className="font-bold text-slate-300 uppercase tracking-wide text-[10px]">
+                      Rejected Alternative Strategies
+                    </span>
+                    <ul className="space-y-1 text-slate-400">
+                      {strategyResult.rejected_strategies.map((rej, idx) => (
+                        <li key={idx} className="flex items-start gap-1.5">
+                          <span className="text-slate-500 font-bold">•</span>
+                          <span>{rej}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                <div className="p-3 rounded-xl bg-dark-900/50 border border-dark-750 text-xs text-slate-300 leading-relaxed font-sans">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Reasoning Analysis:</span>
+                  {strategyResult.reasoning_summary}
                 </div>
               </div>
             )}

@@ -1,5 +1,6 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from enum import Enum
 from pydantic import BaseModel, Field, ConfigDict
 
 
@@ -63,6 +64,81 @@ class CustomerIntentResult(BaseModel):
     reasoning_summary: str
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class RecoveryStrategyType(str, Enum):
+    RETRY_PAYMENT = "RETRY_PAYMENT"
+    ALTERNATE_PAYMENT_METHOD = "ALTERNATE_PAYMENT_METHOD"
+    PAYMENT_LINK = "PAYMENT_LINK"
+    FOLLOW_UP = "FOLLOW_UP"
+    INCENTIVE = "INCENTIVE"
+    HUMAN_ESCALATION = "HUMAN_ESCALATION"
+    STOP_RECOVERY = "STOP_RECOVERY"
+    VERIFY_PAYMENT = "VERIFY_PAYMENT"
+
+
+class GuardrailStatusType(str, Enum):
+    SAFE = "SAFE"
+    CAPPED = "CAPPED"
+    BLOCKED = "BLOCKED"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+
+
+class RecoveryStrategyProposal(BaseModel):
+    """Raw AI strategy proposal before deterministic backend guardrail enforcement."""
+    primary_strategy: str = Field(..., min_length=1)
+    secondary_strategy: Optional[str] = None
+    recommended_channel: str = Field(default="WHATSAPP", min_length=1)
+    recommended_payment_method: Optional[str] = None
+    proposed_discount_percentage: float = Field(default=0.0, ge=0.0)
+    proposed_retry_count: int = Field(default=0, ge=0)
+    expected_recovery_probability: float = Field(..., ge=0.0, le=1.0)
+    strategy_confidence: float = Field(..., ge=0.0, le=1.0)
+    recommended_delay_minutes: int = Field(default=0, ge=0)
+    human_approval_required: bool = False
+    approval_reason: Optional[str] = None
+    strategy_summary: str = Field(..., min_length=1)
+    reasoning_summary: str = Field(..., min_length=1)
+    supporting_factors: List[str] = Field(default_factory=list)
+    risk_factors: List[str] = Field(default_factory=list)
+    rejected_strategies: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+
+class RecoveryStrategyRequest(BaseModel):
+    recovery_case_id: str = Field(..., min_length=1, max_length=100, description="Target recovery case ID")
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class RecoveryStrategyResult(BaseModel):
+    """Final, policy-enforced safe recovery strategy."""
+    recovery_case_id: str = Field(..., min_length=1)
+    payment_id: str = Field(..., min_length=1)
+    customer_id: str = Field(..., min_length=1)
+    primary_strategy: str = Field(..., min_length=1)
+    secondary_strategy: Optional[str] = None
+    recommended_channel: str = Field(..., min_length=1)
+    recommended_payment_method: Optional[str] = None
+    discount_percentage: float = Field(default=0.0, ge=0.0)
+    discount_amount: float = Field(default=0.0, ge=0.0)
+    currency: str = Field(default="INR", min_length=1)
+    expected_recovery_probability: float = Field(..., ge=0.0, le=1.0)
+    strategy_confidence: float = Field(..., ge=0.0, le=1.0)
+    recommended_delay_minutes: int = Field(default=0, ge=0)
+    retry_count: int = Field(default=0, ge=0)
+    human_approval_required: bool = False
+    approval_reason: Optional[str] = None
+    strategy_summary: str = Field(..., min_length=1)
+    reasoning_summary: str = Field(..., min_length=1)
+    supporting_factors: List[str] = Field(default_factory=list)
+    risk_factors: List[str] = Field(default_factory=list)
+    rejected_strategies: List[str] = Field(default_factory=list)
+    guardrail_status: str = Field(..., min_length=1)  # SAFE, CAPPED, BLOCKED, APPROVAL_REQUIRED
+    guardrail_constraints: List[str] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
 
 
 # -------------------------------------------------------------

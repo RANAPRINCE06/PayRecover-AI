@@ -61,6 +61,67 @@ export interface CustomerIntentResult {
   reasoning_summary: string;
 }
 
+export type RecoveryStrategyType =
+  | 'RETRY_PAYMENT'
+  | 'ALTERNATE_PAYMENT_METHOD'
+  | 'PAYMENT_LINK'
+  | 'FOLLOW_UP'
+  | 'INCENTIVE'
+  | 'HUMAN_ESCALATION'
+  | 'STOP_RECOVERY'
+  | 'VERIFY_PAYMENT';
+
+export type GuardrailStatusType = 'SAFE' | 'CAPPED' | 'BLOCKED' | 'APPROVAL_REQUIRED';
+
+export interface RecoveryStrategyRequest {
+  recovery_case_id: string;
+}
+
+export interface RecoveryStrategyProposal {
+  primary_strategy: string;
+  secondary_strategy?: string | null;
+  recommended_channel: string;
+  recommended_payment_method?: string | null;
+  proposed_discount_percentage: number;
+  proposed_retry_count: number;
+  expected_recovery_probability: number;
+  strategy_confidence: number;
+  recommended_delay_minutes: number;
+  human_approval_required: boolean;
+  approval_reason?: string | null;
+  strategy_summary: string;
+  reasoning_summary: string;
+  supporting_factors: string[];
+  risk_factors: string[];
+  rejected_strategies: string[];
+}
+
+export interface RecoveryStrategyResult {
+  recovery_case_id: string;
+  payment_id: string;
+  customer_id: string;
+  primary_strategy: string;
+  secondary_strategy?: string | null;
+  recommended_channel: string;
+  recommended_payment_method?: string | null;
+  discount_percentage: number;
+  discount_amount: number;
+  currency: string;
+  expected_recovery_probability: number;
+  strategy_confidence: number;
+  recommended_delay_minutes: number;
+  retry_count: number;
+  human_approval_required: boolean;
+  approval_reason?: string | null;
+  strategy_summary: string;
+  reasoning_summary: string;
+  supporting_factors: string[];
+  risk_factors: string[];
+  rejected_strategies: string[];
+  guardrail_status: GuardrailStatusType | string;
+  guardrail_constraints: string[];
+}
+
 export interface AgentAction {
   id: string;
   recovery_case_id: string;

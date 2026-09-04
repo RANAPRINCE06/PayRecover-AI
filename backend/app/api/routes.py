@@ -36,10 +36,13 @@ from app.schemas.contracts import (
     SimulateRecoveryRequest,
     PaymentInvestigationResult,
     CustomerIntentRequest,
-    CustomerIntentResult
+    CustomerIntentResult,
+    RecoveryStrategyRequest,
+    RecoveryStrategyResult
 )
 from app.agents.investigator import investigator_agent
 from app.agents.intent import intent_agent
+from app.agents.strategist import strategist_agent, PrerequisiteContextMissingError
 from app.agents.orchestrator import orchestrator
 from app.services.guardrail_service import guardrail_service
 from app.services.redis_service import redis_service
@@ -257,7 +260,26 @@ def analyze_customer_intent(payload: CustomerIntentRequest, db: Session = Depend
         raise HTTPException(status_code=500, detail=f"Intent analysis error: {str(e)}")
 
 
-# 9. AI Copilot
+# 9. AI Generate Recovery Strategy (Phase 4)
+@router.post("/ai/generate-strategy", response_model=RecoveryStrategyResult, tags=["AI Agents"])
+def generate_recovery_strategy(payload: RecoveryStrategyRequest, db: Session = Depends(get_db)):
+    try:
+        return strategist_agent.generate_strategy(
+            db=db,
+            recovery_case_id=payload.recovery_case_id
+        )
+    except PrerequisiteContextMissingError as pre_err:
+        raise HTTPException(status_code=409, detail=str(pre_err))
+    except ValueError as val_err:
+        err_msg = str(val_err)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Strategy generation error: {str(e)}")
+
+
+# 10. AI Copilot
 @router.post("/ai/copilot", response_model=CopilotResponse, tags=["AI Agents"])
 def ask_copilot(payload: CopilotRequest, db: Session = Depends(get_db)):
     prompt_lower = payload.prompt.lower()

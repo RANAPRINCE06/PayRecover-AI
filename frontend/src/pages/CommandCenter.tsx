@@ -49,6 +49,14 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
     .filter((rc) => rc.status === 'AWAITING_HUMAN_APPROVAL' || rc.recovery_score >= 80)
     .slice(0, 5);
 
+  const highConfidenceCases = recoveryCases.filter((c) => c.recovery_score >= 80);
+  const alternateMethodCases = highConfidenceCases.filter((c) =>
+    c.current_strategy?.includes('ALTERNATE') || c.current_strategy?.includes('UPI') || c.customer_intent?.includes('ALTERNATE')
+  );
+  const alternateMethodPct = highConfidenceCases.length > 0
+    ? Math.round((alternateMethodCases.length / highConfidenceCases.length) * 100)
+    : null;
+
   return (
     <div className="space-y-6 animate-fadeIn">
       {/* Top Banner / Pulse */}
@@ -275,6 +283,15 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
             </div>
 
             <div className="space-y-2.5">
+              {alternateMethodPct !== null && (
+                <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
+                  <div className="text-xs font-bold text-emerald-400 mb-0.5">AI Recovery Strategist Telemetry</div>
+                  <p className="text-[11px] text-slate-300 leading-relaxed">
+                    AI recommends alternate payment methods for <strong className="text-emerald-400">{alternateMethodPct}%</strong> of high-confidence recoverable cases.
+                  </p>
+                </div>
+              )}
+
               <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
                 <div className="text-xs font-bold text-brand-cyan mb-0.5">1. Card 3DS Failures ➔ 1-Click WhatsApp UPI</div>
                 <p className="text-[11px] text-slate-300 leading-relaxed">

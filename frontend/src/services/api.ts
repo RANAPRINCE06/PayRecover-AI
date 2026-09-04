@@ -4,7 +4,8 @@ import {
   RecoveryCase,
   AgentAction,
   Guardrails,
-  CopilotResponse
+  CopilotResponse,
+  RecoveryStrategyResult
 } from '../types';
 
 const API_BASE = '/api';
@@ -78,6 +79,12 @@ export const api = {
     request<any>('/ai/analyze-intent', {
       method: 'POST',
       body: JSON.stringify(payload)
+    }),
+
+  generateRecoveryStrategy: (recoveryCaseId: string) =>
+    request<RecoveryStrategyResult>('/ai/generate-strategy', {
+      method: 'POST',
+      body: JSON.stringify({ recovery_case_id: recoveryCaseId })
     }),
 
   askCopilot: (prompt: string, context?: any) =>

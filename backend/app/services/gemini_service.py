@@ -4,7 +4,11 @@ import re
 from typing import Dict, Any, Optional
 import httpx
 from app.core.config import settings
-from app.schemas.contracts import PaymentInvestigationResult, CustomerIntentResult
+from app.schemas.contracts import (
+    PaymentInvestigationResult,
+    CustomerIntentResult,
+    RecoveryStrategyProposal
+)
 
 logger = logging.getLogger("payrecover.gemini")
 
@@ -31,6 +35,17 @@ Distinguish customer intent from sentiment.
 Consider the payment status, failure reason, customer history, previous interactions, and wording of the current message.
 Identify implicit intent when it is strongly supported by context.
 Return only the requested structured output.
+""".strip()
+
+STRATEGIST_SYSTEM_INSTRUCTION = """
+You are PayRecover AI's Recovery Strategist.
+Your responsibility is to select the safest and most effective recovery strategy using payment intelligence, customer intent, historical behavior, and merchant policies.
+Merchant guardrails are authoritative and cannot be overridden.
+Never invent facts.
+Never recommend an action that violates merchant policy.
+Prefer the lowest-cost and least intrusive strategy that has a strong probability of recovering the payment.
+Do not execute any action.
+Return only the requested structured strategy adhering to the JSON schema.
 """.strip()
 
 
@@ -175,10 +190,83 @@ WHATSAPP | SMS | EMAIL | VOICE | NONE
                 data["confidence"] = float(data["confidence"])
 
             return CustomerIntentResult(**data)
-
         except Exception as e:
             logger.error(f"Gemini intent API execution failed: {e}", exc_info=True)
             return self._deterministic_fallback_intent(context, error_note=f"Gemini API Error: {str(e)}")
+
+    # -------------------------------------------------------------
+    # 3. Recovery Strategy Formulation
+    # -------------------------------------------------------------
+    def generate_recovery_strategy(self, context: Dict[str, Any]) -> RecoveryStrategyProposal:
+        """
+        Sends aggregated context (Payment + Customer + Investigator + Intent + Guardrails)
+        to Gemini to generate a proposed recovery strategy.
+        """
+        if not self.is_configured():
+            logger.info("GEMINI_API_KEY not configured. Using deterministic contextual reasoning engine for strategist.")
+            return self._deterministic_fallback_strategy(context)
+
+        prompt = f"""
+Analyze the following payment failure context, investigation intelligence, customer intent, customer history, and merchant guardrails to propose the optimal recovery strategy.
+
+--- CONTEXT ---
+{json.dumps(context, indent=2, default=str)}
+
+--- SUPPORTED PRIMARY STRATEGIES ---
+- RETRY_PAYMENT (direct automated payment re-attempt)
+- ALTERNATE_PAYMENT_METHOD (offer switch to UPI, Card, NetBanking)
+- PAYMENT_LINK (generate pre-filled instant payment link)
+- FOLLOW_UP (scheduled conversational check-in / reminder)
+- INCENTIVE (offer targeted conversion discount within guardrails)
+- HUMAN_ESCALATION (route to high-touch human agent or supervisor)
+- STOP_RECOVERY (cease all automated actions, customer opted out or churned)
+- VERIFY_PAYMENT (investigate/verify if payment was already deducted)
+
+--- SUPPORTED CHANNELS ---
+WHATSAPP | SMS | EMAIL | VOICE | NONE
+
+--- REQUIRED JSON OUTPUT FORMAT ---
+{{
+  "primary_strategy": "STRATEGY_ENUM_VALUE",
+  "secondary_strategy": "OPTIONAL_STRATEGY_ENUM_VALUE or null",
+  "recommended_channel": "WHATSAPP | SMS | EMAIL | VOICE | NONE",
+  "recommended_payment_method": "UPI | CARD | NETBANKING | WALLET | null",
+  "proposed_discount_percentage": 0.0,
+  "proposed_retry_count": 0,
+  "expected_recovery_probability": 0.90,
+  "strategy_confidence": 0.94,
+  "recommended_delay_minutes": 0,
+  "human_approval_required": false,
+  "approval_reason": null,
+  "strategy_summary": "Concise summary of the chosen recovery path in 1-2 sentences",
+  "reasoning_summary": "Detailed analytical rationale explaining why this strategy is optimal and cost-effective",
+  "supporting_factors": ["signal 1", "signal 2"],
+  "risk_factors": ["risk 1"],
+  "rejected_strategies": ["RETRY_PAYMENT — card decline already confirmed", "INCENTIVE — unnecessary for high-intent customer"]
+}}
+"""
+
+        try:
+            raw_text = self._execute_gemini_call(prompt, STRATEGIST_SYSTEM_INSTRUCTION)
+            cleaned_json = self._extract_json(raw_text)
+            data = json.loads(cleaned_json)
+
+            if "expected_recovery_probability" in data:
+                data["expected_recovery_probability"] = float(data["expected_recovery_probability"])
+            if "strategy_confidence" in data:
+                data["strategy_confidence"] = float(data["strategy_confidence"])
+            if "proposed_discount_percentage" in data:
+                data["proposed_discount_percentage"] = float(data["proposed_discount_percentage"])
+            if "proposed_retry_count" in data:
+                data["proposed_retry_count"] = int(data["proposed_retry_count"])
+            if "recommended_delay_minutes" in data:
+                data["recommended_delay_minutes"] = int(data["recommended_delay_minutes"])
+
+            return RecoveryStrategyProposal(**data)
+
+        except Exception as e:
+            logger.error(f"Gemini strategist API execution failed: {e}", exc_info=True)
+            return self._deterministic_fallback_strategy(context, error_note=f"Gemini API Error: {str(e)}")
 
     # -------------------------------------------------------------
     # Shared Gemini Caller
@@ -482,6 +570,282 @@ WHATSAPP | SMS | EMAIL | VOICE | NONE
             recommended_channel=recommended_channel,
             recommended_action=recommended_action,
             reasoning_summary=reasoning
+        )
+
+    # -------------------------------------------------------------
+    # Deterministic Reasoning Fallback for Strategist
+    # -------------------------------------------------------------
+    def _deterministic_fallback_strategy(
+        self,
+        context: Dict[str, Any],
+        error_note: Optional[str] = None
+    ) -> RecoveryStrategyProposal:
+        payment = context.get("payment", {})
+        customer = context.get("customer", {})
+        investigator = context.get("investigator", {})
+        intent_info = context.get("intent", {})
+        recovery = context.get("recovery", {})
+        guardrails = context.get("guardrails", {})
+
+        amount = float(payment.get("amount", 0.0))
+        payment_method = payment.get("payment_method", "CARD").upper()
+        failure_reason = str(payment.get("failure_reason", "UNKNOWN")).upper()
+        retry_count = int(recovery.get("retry_count", payment.get("retry_count", 0)))
+        max_retries = int(guardrails.get("max_retries", 3))
+        high_val_threshold = float(guardrails.get("high_value_threshold", 50000.0))
+        max_discount = float(guardrails.get("max_discount_percentage", 10.0))
+
+        detected_intent = str(intent_info.get("intent", "")).upper()
+        rec_prob = float(investigator.get("recovery_probability", 0.85))
+        inv_risk = str(investigator.get("risk_level", "LOW")).upper()
+        failure_category = str(investigator.get("failure_category", "unknown")).lower()
+        preferred_method = str(customer.get("preferred_payment_method", "UPI")).upper()
+
+        supporting_factors = []
+        risk_factors = []
+        rejected_strategies = []
+
+        # Populate context signals
+        if rec_prob >= 0.8:
+            supporting_factors.append(f"High historical recovery probability ({int(rec_prob*100)}%)")
+        if customer.get("successful_payments", 0) > 0:
+            supporting_factors.append(f"Reliable customer with {customer.get('successful_payments')} previous successful purchases")
+        if inv_risk == "HIGH":
+            risk_factors.append("Investigator flagged transaction as high risk")
+
+        # 1. High-Value Strategy Decision
+        if amount >= high_val_threshold:
+            primary_strategy = "HUMAN_ESCALATION"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = "VOICE" if intent_info.get("recommended_channel") == "VOICE" else "WHATSAPP"
+            rec_method = preferred_method
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = True
+            approval_reason = "Transaction exceeds merchant high-value approval threshold."
+            summary = f"High-value payment of ₹{amount:,.2f} routed for manual human approval and personalized VIP outreach."
+            rejected_strategies.append("RETRY_PAYMENT — direct automated retry restricted for high-value transactions")
+            risk_factors.append(f"High transaction value (₹{amount:,.2f}) requires human supervisor review")
+
+        # 2. Cancellation / Churn Intent (Explicit Customer Intent)
+        elif detected_intent in ["CANCEL_REQUEST", "NOT_INTERESTED"]:
+            primary_strategy = "STOP_RECOVERY"
+            secondary_strategy = None
+            channel = "NONE"
+            rec_method = None
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = "Cease automated recovery outreach to respect customer explicit opt-out / cancellation."
+            risk_factors.append("Customer indicated cancellation or lack of interest")
+            rejected_strategies.append("INCENTIVE — customer requested complete order cancellation")
+            rejected_strategies.append("PAYMENT_LINK — unwanted messages will degrade brand sentiment")
+
+        # 3. Already Paid / Verification Request (Explicit Customer Intent)
+        elif detected_intent == "ALREADY_PAID":
+            primary_strategy = "VERIFY_PAYMENT"
+            secondary_strategy = "HUMAN_ESCALATION"
+            channel = "WHATSAPP"
+            rec_method = None
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = "Initiate gateway transaction reconciliation to verify customer's claim of debited funds."
+            supporting_factors.append("Customer reported debit deduction from banking app")
+            rejected_strategies.append("RETRY_PAYMENT — risk of double charge on customer account")
+
+        # 4. Alternate Payment Method Intent
+        elif detected_intent == "ALTERNATE_PAYMENT_METHOD":
+            primary_strategy = "ALTERNATE_PAYMENT_METHOD"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = intent_info.get("recommended_channel", "WHATSAPP")
+            if channel == "NONE":
+                channel = "WHATSAPP"
+            rec_method = "UPI" if preferred_method == "UPI" or "UPI" in str(intent_info.get("evidence", [])) else "UPI"
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = f"Provide instant 1-click alternate payment method ({rec_method}) via {channel} to overcome payment issue."
+            supporting_factors.append(f"Customer showed readiness to switch to {rec_method}")
+            rejected_strategies.append("RETRY_PAYMENT — customer requested alternate payment method")
+
+        # 5. Direct Payment Link Request
+        elif detected_intent == "PAYMENT_LINK_REQUEST":
+            primary_strategy = "PAYMENT_LINK"
+            secondary_strategy = "FOLLOW_UP"
+            channel = intent_info.get("recommended_channel", "WHATSAPP")
+            if channel == "NONE":
+                channel = "WHATSAPP"
+            rec_method = preferred_method
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = f"Dispatch pre-filled seamless checkout link via {channel} as explicitly requested by customer."
+            supporting_factors.append("Customer explicitly requested checkout link")
+            rejected_strategies.append("INCENTIVE — unnecessary discount for customer already demonstrating high intent")
+
+        # 6. Will Pay Later Intent
+        elif detected_intent == "WILL_PAY_LATER":
+            primary_strategy = "FOLLOW_UP"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = "WHATSAPP"
+            rec_method = preferred_method
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 1440  # 24 hour deferred outreach
+            human_approval = False
+            approval_reason = None
+            summary = "Schedule delayed conversational reminder on WhatsApp to allow customer timing / replenishment."
+            supporting_factors.append("Customer indicated willingness to complete payment at a later scheduled time")
+            rejected_strategies.append("RETRY_PAYMENT — customer requested delayed follow-up")
+
+        # 7. Price Concern / Discount Request
+        elif detected_intent == "PRICE_CONCERN":
+            primary_strategy = "INCENTIVE"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = "WHATSAPP"
+            rec_method = preferred_method
+            discount = min(5.0, max_discount)
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = f"Offer a modest {discount:.0f}% completion incentive to overcome price sensitivity within guardrails."
+            supporting_factors.append(f"Targeted incentive within merchant maximum ({max_discount:.0f}%) to seal conversion")
+            rejected_strategies.append("HUMAN_ESCALATION — discount incentive addresses primary barrier")
+
+        # 8. Retry Request (Explicit Customer Intent)
+        elif detected_intent == "RETRY_REQUEST":
+            if retry_count < max_retries:
+                primary_strategy = "RETRY_PAYMENT"
+                secondary_strategy = "PAYMENT_LINK"
+                channel = "SMS"
+                rec_method = payment_method
+                discount = 0.0
+                proposed_retries = retry_count + 1
+                delay_minutes = 5
+                human_approval = False
+                approval_reason = None
+                summary = f"Trigger automated gateway re-attempt after customer requested retry (Attempt {proposed_retries}/{max_retries})."
+                supporting_factors.append("Customer requested payment retry")
+            else:
+                primary_strategy = "PAYMENT_LINK"
+                secondary_strategy = "ALTERNATE_PAYMENT_METHOD"
+                channel = "WHATSAPP"
+                rec_method = preferred_method
+                discount = 0.0
+                proposed_retries = retry_count
+                delay_minutes = 0
+                human_approval = False
+                approval_reason = None
+                summary = f"Retry quota exhausted ({retry_count}/{max_retries}); falling back to direct {channel} payment link."
+                risk_factors.append("Maximum retry attempts reached on payment gateway")
+                rejected_strategies.append("RETRY_PAYMENT — maximum retries reached")
+
+        # 9. Technical / Failure Telemetry Fallbacks when intent is not explicit
+        elif failure_reason in ["CARD_DECLINED", "3DS_TIMEOUT"] or failure_category == "payment_method_issue":
+            primary_strategy = "ALTERNATE_PAYMENT_METHOD"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = "WHATSAPP"
+            rec_method = "UPI"
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = f"Provide instant 1-click alternate payment method ({rec_method}) via {channel} to overcome {failure_reason}."
+            supporting_factors.append(f"Card declined at bank authentication; switch to {rec_method}")
+            rejected_strategies.append("RETRY_PAYMENT — issuing bank declined original card instrument")
+
+        elif failure_reason in ["CHECKOUT_ABANDONED", "UPI_TIMEOUT"]:
+            primary_strategy = "PAYMENT_LINK"
+            secondary_strategy = "FOLLOW_UP"
+            channel = "WHATSAPP"
+            rec_method = preferred_method
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = f"Dispatch pre-filled seamless checkout link via {channel} for instant order completion."
+            supporting_factors.append("Customer experienced transient checkout / PSP drop-off")
+
+        elif failure_reason in ["INSUFFICIENT_FUNDS"] or failure_category == "insufficient_funds":
+            primary_strategy = "FOLLOW_UP"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = "WHATSAPP"
+            rec_method = preferred_method
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 1440
+            human_approval = False
+            approval_reason = None
+            summary = "Schedule delayed conversational reminder on WhatsApp to allow account replenishment."
+            rejected_strategies.append("RETRY_PAYMENT — immediate retry will fail due to balance insufficiency")
+
+        elif failure_reason in ["SUBSCRIPTION_FAILED", "BANK_SERVER_DOWN", "PSP_TIMEOUT"] and retry_count < max_retries:
+            primary_strategy = "RETRY_PAYMENT"
+            secondary_strategy = "PAYMENT_LINK"
+            channel = "SMS"
+            rec_method = payment_method
+            discount = 0.0
+            proposed_retries = retry_count + 1
+            delay_minutes = 5
+            human_approval = False
+            approval_reason = None
+            summary = f"Trigger automated gateway re-attempt after transient {failure_reason} (Attempt {proposed_retries}/{max_retries})."
+            supporting_factors.append("Temporary gateway/network error with remaining merchant retry quota")
+
+        # 10. Default Fallback
+        else:
+            primary_strategy = "PAYMENT_LINK"
+            secondary_strategy = "ALTERNATE_PAYMENT_METHOD"
+            channel = "WHATSAPP"
+            rec_method = preferred_method
+            discount = 0.0
+            proposed_retries = 0
+            delay_minutes = 0
+            human_approval = False
+            approval_reason = None
+            summary = f"Provide direct frictionless {rec_method} link via {channel}."
+            rejected_strategies.append("RETRY_PAYMENT — direct link offers higher first-attempt conversion")
+
+        confidence = 0.94 if (len(supporting_factors) >= 1) else 0.85
+        reasoning = (
+            f"Strategy {primary_strategy} selected for payment #{payment.get('payment_id', 'unknown')} (₹{amount:,.2f}). "
+            f"Grounding evidence: Failure={failure_reason} ({failure_category}), Customer Intent={detected_intent}, "
+            f"Recovery Prob={int(rec_prob*100)}%, Channel={channel}. "
+            f"Plan minimizes merchant cost while maximizing conversion under guardrails."
+        )
+        if error_note:
+            reasoning += f" [Note: {error_note}]"
+
+        return RecoveryStrategyProposal(
+            primary_strategy=primary_strategy,
+            secondary_strategy=secondary_strategy,
+            recommended_channel=channel,
+            recommended_payment_method=rec_method,
+            proposed_discount_percentage=discount,
+            proposed_retry_count=proposed_retries,
+            expected_recovery_probability=rec_prob,
+            strategy_confidence=confidence,
+            recommended_delay_minutes=delay_minutes,
+            human_approval_required=human_approval,
+            approval_reason=approval_reason,
+            strategy_summary=summary,
+            reasoning_summary=reasoning,
+            supporting_factors=supporting_factors,
+            risk_factors=risk_factors,
+            rejected_strategies=rejected_strategies
         )
 
 
