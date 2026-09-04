@@ -40,12 +40,29 @@ class RecoveryStrategy(BaseModel):
     reasoning: str
 
 
+class CustomerIntentRequest(BaseModel):
+    customer_id: str = Field(..., min_length=1, description="Customer ID")
+    recovery_case_id: Optional[str] = Field(default=None, description="Optional associated recovery case ID")
+    message: str = Field(..., min_length=1, max_length=2000, description="Customer inbound or chat message")
+    channel: str = Field(default="WHATSAPP", description="Interaction channel (WHATSAPP, SMS, EMAIL, VOICE)")
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
 class CustomerIntentResult(BaseModel):
-    intent: str  # ALTERNATE_PAYMENT_METHOD, PAY_LATER, PRICE_OBJECTION, TECH_DIFFICULTY, ACCIDENTAL_ABANDON, DISPUTE
+    customer_id: str
+    recovery_case_id: Optional[str] = None
+    intent: str  # ALTERNATE_PAYMENT_METHOD, WILL_PAY_LATER, PAYMENT_PROBLEM, PRICE_CONCERN, CANCEL_REQUEST, ALREADY_PAID, NEEDS_ASSISTANCE, NOT_INTERESTED, PAYMENT_LINK_REQUEST, RETRY_REQUEST, UNKNOWN
     confidence: float = Field(..., ge=0.0, le=1.0)
-    sentiment: str  # POSITIVE, NEUTRAL, FRUSTRATED, CONFUSED
-    urgency: str  # HIGH, MEDIUM, LOW
-    recommended_action: str
+    sentiment: str  # POSITIVE, NEUTRAL, NEGATIVE, FRUSTRATED
+    urgency: str  # LOW, MEDIUM, HIGH
+    intent_summary: str
+    evidence: List[str] = Field(default_factory=list)
+    recommended_channel: str  # WHATSAPP, SMS, EMAIL, VOICE, NONE
+    recommended_action: str  # OFFER_ALTERNATE_PAYMENT, WAIT_AND_FOLLOW_UP, INVESTIGATE_PAYMENT, PROVIDE_PAYMENT_LINK, REVIEW_PAYMENT_STATUS, OFFER_ASSISTANCE, STOP_CONTACT, RETRY_PAYMENT, HUMAN_ESCALATION
+    reasoning_summary: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # -------------------------------------------------------------

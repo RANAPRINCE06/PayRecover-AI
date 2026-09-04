@@ -74,6 +74,12 @@ export const api = {
       body: JSON.stringify({ payment_id: paymentId })
     }),
 
+  analyzeCustomerIntent: (payload: { customer_id: string; message: string; channel: string; recovery_case_id?: string }) =>
+    request<any>('/ai/analyze-intent', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
   askCopilot: (prompt: string, context?: any) =>
     request<CopilotResponse>('/ai/copilot', {
       method: 'POST',

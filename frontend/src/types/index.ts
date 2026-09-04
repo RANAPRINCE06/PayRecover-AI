@@ -40,6 +40,27 @@ export interface PaymentInvestigationResult {
   confidence: number;
 }
 
+export interface CustomerIntentRequest {
+  customer_id: string;
+  recovery_case_id?: string;
+  message: string;
+  channel: string;
+}
+
+export interface CustomerIntentResult {
+  customer_id: string;
+  recovery_case_id?: string;
+  intent: string;
+  confidence: number;
+  sentiment: 'POSITIVE' | 'NEUTRAL' | 'NEGATIVE' | 'FRUSTRATED';
+  urgency: 'LOW' | 'MEDIUM' | 'HIGH';
+  intent_summary: string;
+  evidence: string[];
+  recommended_channel: string;
+  recommended_action: string;
+  reasoning_summary: string;
+}
+
 export interface AgentAction {
   id: string;
   recovery_case_id: string;

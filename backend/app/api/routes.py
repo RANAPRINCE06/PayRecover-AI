@@ -34,9 +34,12 @@ from app.schemas.contracts import (
     CopilotRequest,
     CopilotResponse,
     SimulateRecoveryRequest,
-    PaymentInvestigationResult
+    PaymentInvestigationResult,
+    CustomerIntentRequest,
+    CustomerIntentResult
 )
 from app.agents.investigator import investigator_agent
+from app.agents.intent import intent_agent
 from app.agents.orchestrator import orchestrator
 from app.services.guardrail_service import guardrail_service
 from app.services.redis_service import redis_service
@@ -234,7 +237,27 @@ def analyze_payment(payload: Dict[str, Any] = Body(...), db: Session = Depends(g
     return investigator_agent.investigate(db, payment)
 
 
-# 8. AI Copilot
+# 8. AI Analyze Customer Intent
+@router.post("/ai/analyze-intent", response_model=CustomerIntentResult, tags=["AI Agents"])
+def analyze_customer_intent(payload: CustomerIntentRequest, db: Session = Depends(get_db)):
+    try:
+        return intent_agent.analyze_intent(
+            db=db,
+            customer_id=payload.customer_id,
+            message=payload.message,
+            channel=payload.channel,
+            recovery_case_id=payload.recovery_case_id
+        )
+    except ValueError as val_err:
+        err_msg = str(val_err)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Intent analysis error: {str(e)}")
+
+
+# 9. AI Copilot
 @router.post("/ai/copilot", response_model=CopilotResponse, tags=["AI Agents"])
 def ask_copilot(payload: CopilotRequest, db: Session = Depends(get_db)):
     prompt_lower = payload.prompt.lower()
