@@ -197,3 +197,79 @@ export interface CopilotResponse {
   recommended_actions: Array<{ label: string; action: string }>;
   data_snapshot?: Record<string, any>;
 }
+
+export type ToolType =
+  | 'RETRY_PAYMENT'
+  | 'CREATE_PAYMENT_LINK'
+  | 'OFFER_ALTERNATE_PAYMENT'
+  | 'SEND_RECOVERY_MESSAGE'
+  | 'SCHEDULE_FOLLOW_UP'
+  | 'VERIFY_PAYMENT'
+  | 'ESCALATE_TO_HUMAN';
+
+export type ToolExecutionStatus =
+  | 'PROPOSED'
+  | 'APPROVAL_REQUIRED'
+  | 'APPROVED'
+  | 'EXECUTING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'BLOCKED'
+  | 'CANCELLED';
+
+export interface ToolProposal {
+  tool_type: ToolType;
+  recovery_case_id: string;
+  payment_id: string;
+  customer_id: string;
+  parameters: Record<string, any>;
+  reason: string;
+  strategy_source?: string;
+  requires_approval: boolean;
+}
+
+export interface ToolExecutionRequest {
+  recovery_case_id: string;
+  tool_type?: ToolType;
+  parameters?: Record<string, any>;
+  idempotency_key?: string;
+  approval_token?: string;
+}
+
+export interface ToolExecutionResult {
+  execution_id: string;
+  recovery_case_id: string;
+  payment_id: string;
+  customer_id: string;
+  tool_type: string;
+  status: ToolExecutionStatus | string;
+  success: boolean;
+  message: string;
+  provider_reference?: string | null;
+  previous_payment_status?: string | null;
+  new_payment_status?: string | null;
+  retry_count: number;
+  amount: number;
+  currency: string;
+  created_at: string;
+  guardrail_status: string;
+  guardrail_constraints: string[];
+  requires_human_approval: boolean;
+  approval_id?: string | null;
+  payment_link_url?: string | null;
+  scheduled_at?: string | null;
+}
+
+export interface HumanApproval {
+  id: string;
+  recovery_case_id: string;
+  execution_id?: string;
+  tool_type: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  reason: string;
+  amount: number;
+  created_at: string;
+  approved_at?: string;
+  rejected_at?: string;
+}
+

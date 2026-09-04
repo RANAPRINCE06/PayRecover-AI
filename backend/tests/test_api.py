@@ -1,3 +1,4 @@
+import uuid
 import pytest
 from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
@@ -748,4 +749,327 @@ def test_strategist_14_agent_action_persisted():
     assert "ALTERNATE_PAYMENT_METHOD" in action.reasoning_summary
     assert "guardrail_status" in action.action_metadata
     db.close()
+
+
+# -------------------------------------------------------------
+# PHASE 5 - Tool Calling & Controlled Autonomous Recovery Execution
+# -------------------------------------------------------------
+
+def _setup_case_for_execution(amount: float = 12999.0, strategy: str = "ALTERNATE_PAYMENT_METHOD", intent: str = "ALTERNATE_PAYMENT_METHOD") -> str:
+    """Helper to set up a fully initialized RecoveryCase ready for Phase 5 Tool Execution."""
+    import uuid
+    from datetime import datetime
+    db = SessionLocal()
+    customer = db.query(Customer).first()
+    pay_id = f"pay_test_exec_{uuid.uuid4().hex[:8]}"
+    payment = Payment(
+        id=pay_id,
+        razorpay_payment_id=f"pay_rzp_{uuid.uuid4().hex[:8]}",
+        customer_id=customer.id,
+        amount=amount,
+        currency="INR",
+        payment_method="CARD",
+        status="FAILED",
+        failure_reason="CARD_DECLINED",
+        created_at=datetime.utcnow()
+    )
+    db.add(payment)
+    db.flush()
+
+    case_id = f"rc_test_exec_{uuid.uuid4().hex[:8]}"
+    case = RecoveryCase(
+        id=case_id,
+        payment_id=payment.id,
+        recovery_score=85.0,
+        recovery_probability=0.85,
+        customer_intent=intent,
+        current_strategy=strategy,
+        status="STRATEGY_SELECTED",
+        retry_count=0,
+        started_at=datetime.utcnow()
+    )
+    db.add(case)
+    db.commit()
+    db.close()
+    return case_id
+
+
+def test_tool_1_alternate_payment_execution_success():
+    """Test 1: Execute OFFER_ALTERNATE_PAYMENT tool successfully with UPI method."""
+    case_id = _setup_case_for_execution(amount=12999.0, strategy="ALTERNATE_PAYMENT_METHOD")
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "OFFER_ALTERNATE_PAYMENT",
+        "parameters": {"payment_method": "UPI"}
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["status"] == "SUCCESS"
+    assert data["tool_type"] == "OFFER_ALTERNATE_PAYMENT"
+    assert "UPI" in data["message"]
+    assert data["provider_reference"] is not None
+    assert data["payment_link_url"] is not None
+
+
+def test_tool_2_payment_link_creation_success():
+    """Test 2: Execute CREATE_PAYMENT_LINK tool and verify pending payment status is preserved."""
+    case_id = _setup_case_for_execution(amount=12999.0, strategy="PAYMENT_LINK")
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "CREATE_PAYMENT_LINK",
+        "parameters": {"discount_percentage": 5.0}
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["status"] == "SUCCESS"
+    assert data["payment_link_url"] is not None
+    # Payment should remain FAILED until settled
+    assert data["new_payment_status"] == "FAILED"
+
+
+def test_tool_3_retry_payment_execution_success():
+    """Test 3: Execute RETRY_PAYMENT and verify successful recovery."""
+    case_id = _setup_case_for_execution(amount=12999.0, strategy="RETRY_PAYMENT")
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "RETRY_PAYMENT",
+        "parameters": {"simulated_success": True}
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["status"] == "SUCCESS"
+    assert data["retry_count"] == 1
+    assert data["new_payment_status"] == "RECOVERED"
+
+
+def test_tool_4_retry_blocked_by_max_retries():
+    """Test 4: Retry blocked when retry_count reaches max_retries limit."""
+    case_id = _setup_case_for_execution(amount=12999.0, strategy="RETRY_PAYMENT")
+    db = SessionLocal()
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    case.retry_count = 3  # Max limit
+    db.commit()
+    db.close()
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "RETRY_PAYMENT"
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+    assert data["status"] == "BLOCKED"
+    assert data["retry_count"] == 3  # Must NOT increment when blocked
+    assert "blocked" in data["message"].lower()
+
+
+def test_tool_5_high_value_blocked_until_approval():
+    """Test 5: Transactions >= ₹50,000 require human approval and are not auto-executed."""
+    case_id = _setup_case_for_execution(amount=55000.0, strategy="ALTERNATE_PAYMENT_METHOD")
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "OFFER_ALTERNATE_PAYMENT"
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+    assert data["status"] == "APPROVAL_REQUIRED"
+    assert data["requires_human_approval"] is True
+    assert data["approval_id"] is not None
+
+
+def test_tool_6_approval_flow():
+    """Test 6: Merchant approves pending high-value transaction, triggering tool execution."""
+    case_id = _setup_case_for_execution(amount=55000.0, strategy="PAYMENT_LINK")
+
+    # Step 1: Initial execution returns APPROVAL_REQUIRED
+    res1 = client.post(f"/api/recovery/{case_id}/execute", json={"recovery_case_id": case_id})
+    assert res1.status_code == 200
+    assert res1.json()["status"] == "APPROVAL_REQUIRED"
+
+    # Step 2: Approve the case
+    res2 = client.post(f"/api/recovery/{case_id}/approve")
+    assert res2.status_code == 200
+    data = res2.json()
+    assert data["success"] is True
+    assert data["status"] == "SUCCESS"
+
+
+def test_tool_7_rejection_flow():
+    """Test 7: Merchant rejects pending case, canceling execution."""
+    case_id = _setup_case_for_execution(amount=55000.0, strategy="PAYMENT_LINK")
+    # Gate it first
+    client.post(f"/api/recovery/{case_id}/execute", json={"recovery_case_id": case_id})
+
+    # Reject
+    res = client.post(f"/api/recovery/{case_id}/reject", json={"reason": "Customer cancelled order"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "REJECTED"
+
+    db = SessionLocal()
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    assert case.status in ["FAILED", "REJECTED"]
+    db.close()
+
+
+def test_tool_8_payment_verification_reconciled():
+    """Test 8: VERIFY_PAYMENT reconciles payment state when gateway confirms capture."""
+    case_id = _setup_case_for_execution(amount=12999.0, strategy="VERIFY_PAYMENT", intent="ALREADY_PAID")
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "VERIFY_PAYMENT",
+        "parameters": {"simulated_status": "captured"}
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is True
+    assert data["status"] == "SUCCESS"
+    assert data["new_payment_status"] == "RECOVERED"
+
+
+def test_tool_9_send_recovery_message_mock():
+    """Test 9: Mock recovery message dispatched outside quiet hours."""
+    case_id = _setup_case_for_execution(amount=12999.0)
+
+    with patch("app.services.guardrail_service.guardrail_service.is_in_quiet_hours", return_value=False):
+        res = client.post(f"/api/recovery/{case_id}/execute", json={
+            "recovery_case_id": case_id,
+            "tool_type": "SEND_RECOVERY_MESSAGE",
+            "parameters": {"channel": "WHATSAPP", "message": "Demo recovery message"}
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is True
+        assert data["status"] == "SUCCESS"
+        assert "WHATSAPP" in data["message"]
+
+
+def test_tool_10_quiet_hours_communication_block():
+    """Test 10: Message outreach blocked during quiet hours."""
+    case_id = _setup_case_for_execution(amount=12999.0)
+
+    with patch("app.services.guardrail_service.guardrail_service.is_in_quiet_hours", return_value=True):
+        res = client.post(f"/api/recovery/{case_id}/execute", json={
+            "recovery_case_id": case_id,
+            "tool_type": "SEND_RECOVERY_MESSAGE",
+            "parameters": {"channel": "SMS"}
+        })
+        assert res.status_code == 200
+        data = res.json()
+        assert data["success"] is False
+        assert data["status"] == "BLOCKED"
+        assert "quiet hours" in data["message"].lower()
+
+
+def test_tool_11_invalid_tool_rejected():
+    """Test 11: Arbitrary un-allowlisted tool name is rejected."""
+    case_id = _setup_case_for_execution(amount=12999.0)
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "ARBITRARY_PYTHON_CALL"
+    })
+    assert res.status_code in [400, 422]
+
+
+def test_tool_12_invalid_parameters_rejected():
+    """Test 12: Invalid payment method parameter (e.g. CRYPTO) rejected."""
+    case_id = _setup_case_for_execution(amount=12999.0)
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "OFFER_ALTERNATE_PAYMENT",
+        "parameters": {"payment_method": "CRYPTO"}
+    })
+    assert res.status_code == 200
+    data = res.json()
+    assert data["success"] is False
+    assert data["status"] == "FAILED"
+    assert "invalid payment method" in data["message"].lower()
+
+
+def test_tool_13_duplicate_execution_is_idempotent():
+    """Test 13: Submitting identical idempotency_key returns cached execution result."""
+    case_id = _setup_case_for_execution(amount=12999.0, strategy="CREATE_PAYMENT_LINK")
+    idempotency_key = f"idem_{uuid.uuid4().hex[:12]}"
+
+    # Request 1
+    res1 = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "CREATE_PAYMENT_LINK",
+        "idempotency_key": idempotency_key
+    })
+    assert res1.status_code == 200
+    exec_id_1 = res1.json()["execution_id"]
+
+    # Request 2 (Duplicate)
+    res2 = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "CREATE_PAYMENT_LINK",
+        "idempotency_key": idempotency_key
+    })
+    assert res2.status_code == 200
+    exec_id_2 = res2.json()["execution_id"]
+
+    assert exec_id_1 == exec_id_2
+
+
+def test_tool_14_tool_execution_and_agent_action_persisted():
+    """Test 14: Execution creates both ToolExecution and AgentAction DB records."""
+    from app.models.entities import ToolExecution
+    case_id = _setup_case_for_execution(amount=12999.0)
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "CREATE_PAYMENT_LINK"
+    })
+    assert res.status_code == 200
+
+    db = SessionLocal()
+    exec_rec = db.query(ToolExecution).filter(ToolExecution.recovery_case_id == case_id).first()
+    action_rec = (
+        db.query(AgentAction)
+        .filter(AgentAction.recovery_case_id == case_id, AgentAction.agent_type == "TOOL_EXECUTOR")
+        .first()
+    )
+    assert exec_rec is not None
+    assert exec_rec.tool_type == "CREATE_PAYMENT_LINK"
+    assert action_rec is not None
+    db.close()
+
+
+def test_tool_15_secrets_redacted_from_audit_logs():
+    """Test 15: Sensitive parameters (keys, CVV, tokens) are redacted from metadata."""
+    from app.models.entities import ToolExecution
+    case_id = _setup_case_for_execution(amount=12999.0)
+
+    res = client.post(f"/api/recovery/{case_id}/execute", json={
+        "recovery_case_id": case_id,
+        "tool_type": "OFFER_ALTERNATE_PAYMENT",
+        "parameters": {
+            "payment_method": "UPI",
+            "api_key": "secret_live_key_999",
+            "cvv": "123",
+            "auth_token": "token_abc"
+        }
+    })
+    assert res.status_code == 200
+
+    db = SessionLocal()
+    exec_rec = db.query(ToolExecution).filter(ToolExecution.recovery_case_id == case_id).first()
+    assert exec_rec is not None
+    assert "secret_live_key_999" not in exec_rec.parameters_json
+    assert "123" not in exec_rec.parameters_json
+    assert "[REDACTED]" in exec_rec.parameters_json
+    db.close()
+
 

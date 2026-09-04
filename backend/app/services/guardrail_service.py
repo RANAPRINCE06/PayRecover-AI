@@ -36,6 +36,26 @@ class GuardrailService:
         return guardrail
 
     @classmethod
+    def is_in_quiet_hours(cls, quiet_start: str = "22:00", quiet_end: str = "08:00", current_time: Optional[time] = None) -> bool:
+        """
+        Helper to check if current (or specified) time falls within quiet hours.
+        """
+        now_time = current_time or datetime.utcnow().time()
+        try:
+            q_start_h, q_start_m = map(int, quiet_start.split(":"))
+            q_end_h, q_end_m = map(int, quiet_end.split(":"))
+            q_start = time(q_start_h, q_start_m)
+            q_end = time(q_end_h, q_end_m)
+
+            if q_start > q_end:  # Over midnight (e.g. 22:00 to 08:00)
+                return (now_time >= q_start or now_time <= q_end)
+            else:
+                return (q_start <= now_time <= q_end)
+        except Exception as e:
+            logger.warning(f"Error evaluating quiet hours: {e}")
+            return False
+
+    @classmethod
     def evaluate_action(
         cls,
         db: Session,
@@ -74,23 +94,9 @@ class GuardrailService:
             )
 
         # 4. Quiet Hours Check
-        now_time = datetime.utcnow().time()
-        try:
-            q_start_h, q_start_m = map(int, guardrail.quiet_hours_start.split(":"))
-            q_end_h, q_end_m = map(int, guardrail.quiet_hours_end.split(":"))
-            q_start = time(q_start_h, q_start_m)
-            q_end = time(q_end_h, q_end_m)
-
-            if q_start > q_end:  # Over midnight (e.g. 22:00 to 08:00)
-                is_quiet = (now_time >= q_start or now_time <= q_end)
-            else:
-                is_quiet = (q_start <= now_time <= q_end)
-
-            if is_quiet and action_type in ["DISPATCH_MESSAGE", "OFFER_DISCOUNT"]:
+        if cls.is_in_quiet_hours(guardrail.quiet_hours_start, guardrail.quiet_hours_end):
+            if action_type in ["DISPATCH_MESSAGE", "OFFER_DISCOUNT"]:
                 logger.info(f"Action {action_type} scheduled post-quiet-hours.")
-                # We allow link creation but note quiet hours scheduling
-        except Exception:
-            pass
 
         return True, "Guardrail evaluation passed. Action authorized."
 

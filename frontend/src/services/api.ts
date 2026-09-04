@@ -5,7 +5,9 @@ import {
   AgentAction,
   Guardrails,
   CopilotResponse,
-  RecoveryStrategyResult
+  RecoveryStrategyResult,
+  ToolExecutionRequest,
+  ToolExecutionResult
 } from '../types';
 
 const API_BASE = '/api';
@@ -99,14 +101,17 @@ export const api = {
       body: JSON.stringify({ scenario_type: scenarioType, amount })
     }),
 
-  executeRecovery: (caseId: string) =>
-    request<any>(`/recovery/${caseId}/execute`, { method: 'POST' }),
+  executeRecovery: (caseId: string, payload?: ToolExecutionRequest) =>
+    request<ToolExecutionResult>(`/recovery/${caseId}/execute`, {
+      method: 'POST',
+      body: payload ? JSON.stringify(payload) : undefined
+    }),
 
   approveCase: (caseId: string) =>
-    request<any>(`/recovery/${caseId}/approve`, { method: 'POST' }),
+    request<ToolExecutionResult>(`/recovery/${caseId}/approve`, { method: 'POST' }),
 
   rejectCase: (caseId: string, reason?: string) =>
-    request<any>(`/recovery/${caseId}/reject`, {
+    request<{ message: string; case_id: string; status: string }>(`/recovery/${caseId}/reject`, {
       method: 'POST',
       body: JSON.stringify({ reason: reason || 'Merchant rejected' })
     }),

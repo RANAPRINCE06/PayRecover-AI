@@ -142,6 +142,81 @@ class RecoveryStrategyResult(BaseModel):
 
 
 # -------------------------------------------------------------
+# Phase 5 - Tool Calling & Autonomous Execution Contracts
+# -------------------------------------------------------------
+
+class ToolType(str, Enum):
+    RETRY_PAYMENT = "RETRY_PAYMENT"
+    CREATE_PAYMENT_LINK = "CREATE_PAYMENT_LINK"
+    OFFER_ALTERNATE_PAYMENT = "OFFER_ALTERNATE_PAYMENT"
+    SEND_RECOVERY_MESSAGE = "SEND_RECOVERY_MESSAGE"
+    SCHEDULE_FOLLOW_UP = "SCHEDULE_FOLLOW_UP"
+    VERIFY_PAYMENT = "VERIFY_PAYMENT"
+    ESCALATE_TO_HUMAN = "ESCALATE_TO_HUMAN"
+
+
+class ToolExecutionStatus(str, Enum):
+    PROPOSED = "PROPOSED"
+    APPROVAL_REQUIRED = "APPROVAL_REQUIRED"
+    APPROVED = "APPROVED"
+    EXECUTING = "EXECUTING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    BLOCKED = "BLOCKED"
+    CANCELLED = "CANCELLED"
+
+
+class ToolProposal(BaseModel):
+    tool_type: ToolType = Field(..., description="Allowlisted recovery tool type")
+    recovery_case_id: str = Field(..., min_length=1, description="Associated recovery case ID")
+    payment_id: str = Field(..., min_length=1, description="Associated payment ID")
+    customer_id: str = Field(..., min_length=1, description="Associated customer ID")
+    parameters: Dict[str, Any] = Field(default_factory=dict, description="Tool execution parameters")
+    reason: str = Field(..., min_length=1, description="Reasoning for tool recommendation")
+    strategy_source: Optional[str] = Field(default=None, description="Originating strategy name")
+    requires_approval: bool = Field(default=False, description="Whether human approval is required")
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+
+class ToolExecutionRequest(BaseModel):
+    recovery_case_id: str = Field(..., min_length=1, description="Recovery case ID to execute")
+    tool_type: Optional[ToolType] = Field(default=None, description="Optional explicit tool override")
+    parameters: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional parameters")
+    idempotency_key: Optional[str] = Field(default=None, max_length=128, description="Unique idempotency key")
+    approval_token: Optional[str] = Field(default=None, description="Approval token reference")
+
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+
+class ToolExecutionResult(BaseModel):
+    execution_id: str = Field(..., min_length=1)
+    recovery_case_id: str = Field(..., min_length=1)
+    payment_id: str = Field(..., min_length=1)
+    customer_id: str = Field(..., min_length=1)
+    tool_type: str = Field(..., min_length=1)
+    status: str = Field(..., min_length=1)  # SUCCESS, FAILED, BLOCKED, APPROVAL_REQUIRED, CANCELLED
+    success: bool = Field(default=False)
+    message: str = Field(..., min_length=1)
+    provider_reference: Optional[str] = None
+    previous_payment_status: Optional[str] = None
+    new_payment_status: Optional[str] = None
+    retry_count: int = Field(default=0, ge=0)
+    amount: float = Field(default=0.0, ge=0.0)
+    currency: str = Field(default="INR")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    guardrail_status: str = Field(default="SAFE")
+    guardrail_constraints: List[str] = Field(default_factory=list)
+    requires_human_approval: bool = Field(default=False)
+    approval_id: Optional[str] = None
+    payment_link_url: Optional[str] = None
+    scheduled_at: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+
+
+# -------------------------------------------------------------
 # Entity Schemas & API Responses
 # -------------------------------------------------------------
 

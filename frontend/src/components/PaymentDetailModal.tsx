@@ -26,7 +26,8 @@ import {
   RecoveryCase,
   PaymentInvestigationResult,
   CustomerIntentResult,
-  RecoveryStrategyResult
+  RecoveryStrategyResult,
+  ToolExecutionResult
 } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { RecoveryScore } from './RecoveryScore';
@@ -43,6 +44,7 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
   const [investigation, setInvestigation] = useState<PaymentInvestigationResult | null>(null);
   const [intentResult, setIntentResult] = useState<CustomerIntentResult | null>(null);
   const [strategyResult, setStrategyResult] = useState<RecoveryStrategyResult | null>(null);
+  const [executionResult, setExecutionResult] = useState<ToolExecutionResult | null>(null);
   
   // Inputs & loaders
   const [customerMessage, setCustomerMessage] = useState("My card isn't working. Can I use UPI?");
@@ -71,6 +73,7 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
     setInvestigation(null);
     setIntentResult(null);
     setStrategyResult(null);
+    setExecutionResult(null);
     setInvestigationError(null);
     setIntentError(null);
     setStrategyError(null);
@@ -142,12 +145,13 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
     if (!recoveryCase) return;
     setActionLoading(true);
     try {
-      await api.executeRecovery(recoveryCase.id);
+      const result = await api.executeRecovery(recoveryCase.id);
+      setExecutionResult(result);
       const updated = await api.getRecoveryCase(recoveryCase.id);
       setRecoveryCase(updated);
       onRefresh();
-    } catch (err) {
-      alert(`Execution failed: ${err}`);
+    } catch (err: any) {
+      alert(`Execution failed: ${err.message || err}`);
     } finally {
       setActionLoading(false);
     }
@@ -161,8 +165,8 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
       const updated = await api.getRecoveryCase(recoveryCase.id);
       setRecoveryCase(updated);
       onRefresh();
-    } catch (err) {
-      alert(`Settlement confirmation failed: ${err}`);
+    } catch (err: any) {
+      alert(`Settlement confirmation failed: ${err.message || err}`);
     } finally {
       setActionLoading(false);
     }
@@ -172,12 +176,28 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
     if (!recoveryCase) return;
     setActionLoading(true);
     try {
-      await api.approveCase(recoveryCase.id);
+      const result = await api.approveCase(recoveryCase.id);
+      setExecutionResult(result);
       const updated = await api.getRecoveryCase(recoveryCase.id);
       setRecoveryCase(updated);
       onRefresh();
-    } catch (err) {
-      alert(`Approve failed: ${err}`);
+    } catch (err: any) {
+      alert(`Approve failed: ${err.message || err}`);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!recoveryCase) return;
+    setActionLoading(true);
+    try {
+      await api.rejectCase(recoveryCase.id, "Merchant rejected high-value outreach");
+      const updated = await api.getRecoveryCase(recoveryCase.id);
+      setRecoveryCase(updated);
+      onRefresh();
+    } catch (err: any) {
+      alert(`Reject failed: ${err.message || err}`);
     } finally {
       setActionLoading(false);
     }
@@ -777,9 +797,135 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
                   <span className="text-[10px] font-bold text-slate-500 uppercase block mb-1">Reasoning Analysis:</span>
                   {strategyResult.reasoning_summary}
                 </div>
+
+                {/* Direct Phase 5 Execution Action Card */}
+                <div className="p-4 rounded-xl bg-gradient-to-r from-dark-850 to-dark-800 border border-brand-cyan/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-lg">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-white uppercase tracking-wider">
+                        Ready for Execution:
+                      </span>
+                      <span className="px-2 py-0.5 rounded bg-brand-cyan/10 border border-brand-cyan/30 text-brand-cyan text-xs font-mono font-bold">
+                        {strategyResult.primary_strategy}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-400 flex items-center gap-3">
+                      <span>Method: <strong className="text-slate-200">{strategyResult.recommended_payment_method || 'UPI'}</strong></span>
+                      <span>•</span>
+                      <span>Channel: <strong className="text-slate-200">{strategyResult.recommended_channel}</strong></span>
+                      <span>•</span>
+                      <span>Guardrail: <strong className={strategyResult.guardrail_status === 'SAFE' ? 'text-emerald-400' : 'text-amber-400'}>{strategyResult.guardrail_status}</strong></span>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={handleExecute}
+                    disabled={actionLoading || payment.status === 'RECOVERED'}
+                    className="px-5 py-2.5 bg-gradient-to-r from-brand-cyan to-brand-emerald text-dark-900 font-bold text-xs rounded-xl shadow-glow-cyan hover:opacity-95 transition flex items-center justify-center gap-2 shrink-0 disabled:opacity-50"
+                  >
+                    {actionLoading ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-dark-900" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 text-dark-900" />
+                    )}
+                    EXECUTE RECOVERY
+                  </button>
+                </div>
               </div>
             )}
           </div>
+
+          {/* Phase 5 Human Approval Required Alert Box */}
+          {(recoveryCase?.status === 'AWAITING_HUMAN_APPROVAL' || strategyResult?.human_approval_required) && payment.status !== 'RECOVERED' && (
+            <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-3 animate-fadeIn">
+              <div className="flex items-center gap-2 text-rose-400">
+                <AlertTriangle className="w-5 h-5" />
+                <h4 className="text-sm font-bold uppercase tracking-wider">Human Approval Required</h4>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-2.5 rounded-lg bg-dark-900/60 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Transaction Amount</span>
+                  <span className="text-sm font-bold font-mono text-white mt-0.5 block">₹{payment.amount.toLocaleString()}</span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-dark-900/60 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Proposed Strategy</span>
+                  <span className="text-xs font-bold font-mono text-brand-cyan mt-0.5 block truncate">
+                    {strategyResult?.primary_strategy || recoveryCase?.current_strategy || 'RECOVERY_ACTION'}
+                  </span>
+                </div>
+                <div className="p-2.5 rounded-lg bg-dark-900/60 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Trigger Reason</span>
+                  <span className="text-xs text-rose-300 mt-0.5 block truncate">High-Value Transaction</span>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-300">
+                This transaction exceeds your merchant threshold. Backend execution is gated until you review and authorize.
+              </p>
+
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  onClick={handleApprove}
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-dark-900 font-bold text-xs rounded-lg transition flex items-center gap-1.5 shadow-sm"
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  Approve Outreach
+                </button>
+                <button
+                  onClick={handleReject}
+                  disabled={actionLoading}
+                  className="px-4 py-2 bg-dark-700 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold text-xs rounded-lg transition flex items-center gap-1.5"
+                >
+                  <X className="w-4 h-4" />
+                  Reject Outreach
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Phase 5 Tool Execution Result Card */}
+          {executionResult && (
+            <div className="p-4 rounded-xl bg-dark-900/90 border border-emerald-500/30 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between border-b border-dark-700 pb-2">
+                <div className="flex items-center gap-2">
+                  <CheckCircle className={`w-4 h-4 ${executionResult.success ? 'text-emerald-400' : 'text-amber-400'}`} />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">
+                    Recovery Execution Result
+                  </span>
+                </div>
+                <span className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
+                  executionResult.success ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'
+                }`}>
+                  {executionResult.status}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-2 rounded bg-dark-800 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Tool</span>
+                  <span className="font-mono font-bold text-brand-cyan truncate block">{executionResult.tool_type}</span>
+                </div>
+                <div className="p-2 rounded bg-dark-800 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Provider Ref</span>
+                  <span className="font-mono text-slate-200 text-[11px] truncate block">{executionResult.provider_reference || 'MOCK_RZP'}</span>
+                </div>
+                <div className="p-2 rounded bg-dark-800 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Payment Status</span>
+                  <span className="font-mono font-bold text-emerald-400 block">{executionResult.new_payment_status || payment.status}</span>
+                </div>
+                <div className="p-2 rounded bg-dark-800 border border-dark-700">
+                  <span className="text-[10px] text-slate-400 uppercase block">Retries Used</span>
+                  <span className="font-mono font-bold text-white block">{executionResult.retry_count}</span>
+                </div>
+              </div>
+
+              <div className="p-2.5 rounded bg-dark-800 border border-dark-700 text-xs text-slate-300">
+                <strong>Message:</strong> {executionResult.message}
+              </div>
+            </div>
+          )}
 
           {/* Recovery Case Actions & Links if available */}
           {recoveryCase?.payment_link_url && (
@@ -846,7 +992,7 @@ export const PaymentDetailModal: React.FC<PaymentDetailModalProps> = ({ payment,
                   className="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-slate-200 text-xs font-semibold rounded-lg transition flex items-center gap-1.5"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 ${actionLoading ? 'animate-spin' : ''}`} />
-                  Re-run Flow
+                  Execute Recovery
                 </button>
 
                 <button

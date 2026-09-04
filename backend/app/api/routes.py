@@ -38,12 +38,18 @@ from app.schemas.contracts import (
     CustomerIntentRequest,
     CustomerIntentResult,
     RecoveryStrategyRequest,
-    RecoveryStrategyResult
+    RecoveryStrategyResult,
+    ToolType,
+    ToolExecutionStatus,
+    ToolProposal,
+    ToolExecutionRequest,
+    ToolExecutionResult
 )
 from app.agents.investigator import investigator_agent
 from app.agents.intent import intent_agent
 from app.agents.strategist import strategist_agent, PrerequisiteContextMissingError
 from app.agents.orchestrator import orchestrator
+from app.tools.tool_executor import ToolExecutor
 from app.services.guardrail_service import guardrail_service
 from app.services.redis_service import redis_service
 from app.integrations.mock_payment_engine import mock_payment_engine
@@ -394,59 +400,59 @@ def simulate_recovery_pipeline(payload: SimulateRecoveryRequest, db: Session = D
     }
 
 
-# 10. Execute, Approve, Reject Actions on Case
-@router.post("/recovery/{case_id}/execute", tags=["Recovery Engine"])
-def execute_case_recovery(case_id: str, db: Session = Depends(get_db)):
-    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
+# 10. Execute, Approve, Reject Actions on Case (Phase 5 Tool Calling & Execution)
+@router.post("/recovery/{case_id}/execute", response_model=ToolExecutionResult, tags=["Recovery Engine"])
+def execute_case_recovery(
+    case_id: str,
+    payload: Optional[ToolExecutionRequest] = None,
+    db: Session = Depends(get_db)
+):
+    try:
+        return ToolExecutor.execute(
+            db=db,
+            recovery_case_id=case_id,
+            tool_type=payload.tool_type if payload else None,
+            parameters=payload.parameters if payload else None,
+            idempotency_key=payload.idempotency_key if payload else None,
+            approval_token=payload.approval_token if payload else None
+        )
+    except ValueError as val_err:
+        err_msg = str(val_err)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Tool execution failed: {str(e)}")
 
-    result = orchestrator.execute_recovery_pipeline(db=db, recovery_case_id=case_id)
-    return result
 
-
-@router.post("/recovery/{case_id}/approve", tags=["Recovery Engine"])
+@router.post("/recovery/{case_id}/approve", response_model=ToolExecutionResult, tags=["Recovery Engine"])
 def approve_recovery_case(case_id: str, db: Session = Depends(get_db)):
-    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    case.status = RecoveryStatus.ACTION_IN_PROGRESS.value
-    # Add human approval action
-    action = AgentAction(
-        id=f"act_{uuid.uuid4().hex[:8]}",
-        recovery_case_id=case.id,
-        agent_type=AgentType.TOOL_EXECUTOR.value,
-        action_type=ActionType.GUARDRAIL_CHECK.value,
-        reasoning_summary=f"Merchant authorized high-value recovery outreach for ₹{case.payment.amount:,.2f}.",
-        status=ActionStatus.APPROVED.value,
-        created_at=datetime.utcnow()
-    )
-    db.add(action)
-    db.commit()
-    db.refresh(case)
-    return {"message": "Case approved and released for execution", "case_id": case.id}
+    try:
+        return ToolExecutor.approve_case(db=db, case_id=case_id)
+    except ValueError as val_err:
+        err_msg = str(val_err)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Case approval execution failed: {str(e)}")
 
 
 @router.post("/recovery/{case_id}/reject", tags=["Recovery Engine"])
-def reject_recovery_case(case_id: str, reason: str = Body("Merchant rejected automated outreach", embed=True), db: Session = Depends(get_db)):
-    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
-    if not case:
-        raise HTTPException(status_code=404, detail="Case not found")
-
-    case.status = RecoveryStatus.FAILED.value
-    action = AgentAction(
-        id=f"act_{uuid.uuid4().hex[:8]}",
-        recovery_case_id=case.id,
-        agent_type=AgentType.TOOL_EXECUTOR.value,
-        action_type=ActionType.GUARDRAIL_CHECK.value,
-        reasoning_summary=f"Action blocked by merchant rejection: {reason}",
-        status=ActionStatus.REJECTED.value,
-        created_at=datetime.utcnow()
-    )
-    db.add(action)
-    db.commit()
-    return {"message": "Case recovery rejected", "case_id": case.id}
+def reject_recovery_case(
+    case_id: str,
+    reason: str = Body("Merchant rejected automated outreach", embed=True),
+    db: Session = Depends(get_db)
+):
+    try:
+        return ToolExecutor.reject_case(db=db, case_id=case_id, reason=reason)
+    except ValueError as val_err:
+        err_msg = str(val_err)
+        if "not found" in err_msg.lower():
+            raise HTTPException(status_code=404, detail=err_msg)
+        raise HTTPException(status_code=400, detail=err_msg)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Case rejection failed: {str(e)}")
 
 
 # Confirm Payment Recovery (Used to simulate completion of payment link by customer)

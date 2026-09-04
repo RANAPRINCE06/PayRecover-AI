@@ -18,7 +18,12 @@ from app.schemas.contracts import (
     DashboardMetrics,
     CopilotRequest,
     CopilotResponse,
-    SimulateRecoveryRequest
+    SimulateRecoveryRequest,
+    ToolType,
+    ToolExecutionStatus,
+    ToolProposal,
+    ToolExecutionRequest,
+    ToolExecutionResult
 )
 
 __all__ = [
@@ -41,5 +46,10 @@ __all__ = [
     "DashboardMetrics",
     "CopilotRequest",
     "CopilotResponse",
-    "SimulateRecoveryRequest"
+    "SimulateRecoveryRequest",
+    "ToolType",
+    "ToolExecutionStatus",
+    "ToolProposal",
+    "ToolExecutionRequest",
+    "ToolExecutionResult"
 ]

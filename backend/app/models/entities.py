@@ -165,6 +165,8 @@ class RecoveryCase(Base):
     payment = relationship("Payment", back_populates="recovery_case")
     actions = relationship("AgentAction", back_populates="recovery_case", order_by="AgentAction.created_at")
     interactions = relationship("CustomerInteraction", back_populates="recovery_case", order_by="CustomerInteraction.created_at")
+    tool_executions = relationship("ToolExecution", back_populates="recovery_case", order_by="ToolExecution.created_at")
+    approvals = relationship("HumanApproval", back_populates="recovery_case", order_by="HumanApproval.created_at")
 
 
 # 5. Agent Action
@@ -219,3 +221,47 @@ class CustomerInteraction(Base):
 
     customer = relationship("Customer", back_populates="interactions")
     recovery_case = relationship("RecoveryCase", back_populates="interactions")
+
+
+# 8. Tool Executions (Phase 5)
+class ToolExecution(Base):
+    __tablename__ = "tool_executions"
+
+    id = Column(String(50), primary_key=True, index=True)
+    execution_id = Column(String(100), unique=True, nullable=False, index=True)
+    recovery_case_id = Column(String(50), ForeignKey("recovery_cases.id"), nullable=False, index=True)
+    payment_id = Column(String(50), ForeignKey("payments.id"), nullable=False, index=True)
+    customer_id = Column(String(50), ForeignKey("customers.id"), nullable=False, index=True)
+    tool_type = Column(String(50), nullable=False, index=True)
+    status = Column(String(50), default="PROPOSED", index=True)
+    parameters_json = Column(Text, nullable=True)
+    result_json = Column(Text, nullable=True)
+    provider_reference = Column(String(100), nullable=True)
+    idempotency_key = Column(String(100), nullable=True, index=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=True)
+
+    recovery_case = relationship("RecoveryCase", back_populates="tool_executions")
+    payment = relationship("Payment")
+    customer = relationship("Customer")
+
+
+# 9. Human Approvals (Phase 5)
+class HumanApproval(Base):
+    __tablename__ = "human_approvals"
+
+    id = Column(String(50), primary_key=True, index=True)
+    recovery_case_id = Column(String(50), ForeignKey("recovery_cases.id"), nullable=False, index=True)
+    execution_id = Column(String(100), nullable=True, index=True)
+    tool_type = Column(String(50), nullable=False)
+    status = Column(String(50), default="PENDING", index=True)  # PENDING, APPROVED, REJECTED
+    reason = Column(Text, nullable=False)
+    amount = Column(Float, nullable=False, default=0.0)
+    parameters_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    approved_at = Column(DateTime, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+
+    recovery_case = relationship("RecoveryCase", back_populates="approvals")
+
