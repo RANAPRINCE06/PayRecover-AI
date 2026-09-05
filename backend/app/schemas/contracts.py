@@ -180,7 +180,7 @@ class ToolProposal(BaseModel):
 
 
 class ToolExecutionRequest(BaseModel):
-    recovery_case_id: str = Field(..., min_length=1, description="Recovery case ID to execute")
+    recovery_case_id: Optional[str] = Field(default=None, description="Recovery case ID to execute")
     tool_type: Optional[ToolType] = Field(default=None, description="Optional explicit tool override")
     parameters: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional parameters")
     idempotency_key: Optional[str] = Field(default=None, max_length=128, description="Unique idempotency key")
@@ -417,3 +417,65 @@ class SimulateRecoveryRequest(BaseModel):
     scenario_type: str = "DEMO_CARD_DECLINE_UPI"  # DEMO_CARD_DECLINE_UPI, UPI_TIMEOUT, INSUFFICIENT_FUNDS, HIGH_VALUE_APPROVAL
     amount: float = 12999.0
     customer_id: Optional[str] = None
+
+
+# -------------------------------------------------------------
+# PHASE 8 - Authentication, RBAC, Health & Observability Schemas
+# -------------------------------------------------------------
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    role: str
+    is_active: bool
+    merchant_id: Optional[str] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserCreate(BaseModel):
+    email: str = Field(..., min_length=5, max_length=150)
+    password: str = Field(..., min_length=6, max_length=100)
+    name: str = Field(..., min_length=2, max_length=150)
+    role: str = Field(default="VIEWER")
+    merchant_id: Optional[str] = None
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    role: Optional[str] = None
+    is_active: Optional[bool] = None
+    password: Optional[str] = None
+
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=3)
+    password: str = Field(..., min_length=1)
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int = 86400
+    user: UserResponse
+
+
+class SystemHealthResponse(BaseModel):
+    status: str
+    services: Dict[str, str]
+    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    request_id: Optional[str] = None
+    details: Optional[Any] = None
+
+
+class StandardErrorResponse(BaseModel):
+    error: ErrorDetail
+

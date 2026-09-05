@@ -10,14 +10,18 @@ import { AICopilotPage } from './pages/AICopilotPage';
 import { GuardrailsPage } from './pages/GuardrailsPage';
 import { DemoCenter } from './pages/DemoCenter';
 import { SettingsPage } from './pages/SettingsPage';
+import { LoginPage } from './pages/LoginPage';
 import { PaymentDetailModal } from './components/PaymentDetailModal';
 import { SimulateModal } from './components/SimulateModal';
 import { LoadingState } from './components/LoadingState';
-import { ToastProvider } from './components/Toast';
+import { ToastProvider, useToast } from './components/Toast';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { api } from './services/api';
 import { DashboardMetrics, Payment, RecoveryCase, AgentAction } from './types';
 
-function AppContent() {
+function MainDashboard() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('command-center');
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -84,7 +88,7 @@ function AppContent() {
         {/* Scrollable Viewport */}
         <main className="flex-1 overflow-y-auto p-6 md:p-8">
           {loading ? (
-            <LoadingState message="Connecting to PayRecover AI Engine & Razorpay Telemetry..." />
+            <LoadingState message="Connecting to PayRecover AI Engine & Telemetry Stream..." />
           ) : (
             <>
               {activeTab === 'command-center' && (
@@ -95,6 +99,7 @@ function AppContent() {
                   onSelectPayment={(p) => setSelectedPayment(p)}
                   onOpenSimulate={() => setIsSimulateOpen(true)}
                   onRefresh={loadData}
+                  onNavigate={(tab) => setActiveTab(tab)}
                 />
               )}
 
@@ -166,11 +171,38 @@ function AppContent() {
   );
 }
 
+function AppContent() {
+  const { user, token, isLoading } = useAuth();
+  const { showWarning } = useToast();
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      showWarning('Session Expired', 'Please sign in to continue.');
+    };
+    window.addEventListener('payrecover:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('payrecover:unauthorized', handleUnauthorized);
+  }, [showWarning]);
+
+  if (isLoading) {
+    return <LoadingState message="Verifying secure PayRecover session..." />;
+  }
+
+  if (!token || !user) {
+    return <LoginPage />;
+  }
+
+  return <MainDashboard />;
+}
+
 export function App() {
   return (
-    <ToastProvider>
-      <AppContent />
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </ToastProvider>
+    </ErrorBoundary>
   );
 }
 

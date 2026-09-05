@@ -20,6 +20,8 @@ import { RecoveryScore } from '../components/RecoveryScore';
 import { AutonomousPipelinePanel } from '../components/AutonomousPipelinePanel';
 import { api } from '../services/api';
 import { useToast } from '../components/Toast';
+import { LiveActivityFeed } from '../components/LiveActivityFeed';
+import { useAuth } from '../context/AuthContext';
 
 interface CommandCenterProps {
   metrics: DashboardMetrics | null;
@@ -204,10 +206,10 @@ function OpportunityCard({ opp, onView }: { opp: RecoveryOpportunity; onView: (i
 // ─── Main Command Center 2.0 ─────────────────────────────────────────────────
 
 export const CommandCenter: React.FC<CommandCenterProps> = ({
-  metrics, payments, recoveryCases,
-  onSelectPayment, onOpenSimulate, onRefresh, onNavigate
+  metrics, payments, recoveryCases, onSelectPayment, onOpenSimulate, onRefresh, onNavigate
 }) => {
   const { success, error: showError } = useToast();
+  const { canExecuteRecovery, isReadOnly } = useAuth();
 
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
   const [trend, setTrend] = useState<RecoveryTrend | null>(null);
@@ -339,8 +341,13 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
         <div className="flex items-center gap-2">
           <button
             onClick={handleRunAutonomous}
-            disabled={autoRunning}
-            className="px-3.5 py-2 bg-gradient-to-r from-violet-600 to-brand-cyan text-white font-bold text-xs rounded-lg hover:opacity-90 transition flex items-center gap-1.5 disabled:opacity-60"
+            disabled={autoRunning || !canExecuteRecovery || isReadOnly}
+            title={!canExecuteRecovery ? 'Role requires Operator or Admin' : undefined}
+            className={`px-3.5 py-2 font-bold text-xs rounded-lg transition flex items-center gap-1.5 ${
+              !canExecuteRecovery || isReadOnly
+                ? 'bg-dark-800 border border-dark-700 text-slate-500 cursor-not-allowed'
+                : 'bg-gradient-to-r from-violet-600 to-brand-cyan text-white hover:opacity-90 shadow-glow-cyan'
+            }`}
           >
             {autoRunning ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />Running…</> : <><Zap className="w-3.5 h-3.5" />⚡ Autonomous Recovery</>}
           </button>
@@ -473,6 +480,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
           <RecoveryFunnel overview={ov} onFilter={f => onNavigate?.(f === 'RECOVERED' ? 'recovery-cases' : 'recovery-cases')} />
         </div>
       </div>
+
+      {/* Real-time Live Operations Feed */}
+      <LiveActivityFeed maxItems={15} onSelectCaseId={(cId) => onNavigate?.('recovery-cases')} />
 
       {/* Opportunities + High Priority */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

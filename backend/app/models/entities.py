@@ -96,6 +96,13 @@ class InteractionDirection(str, enum.Enum):
     INBOUND = "INBOUND"
 
 
+class UserRole(str, enum.Enum):
+    ADMIN = "ADMIN"
+    ANALYST = "ANALYST"
+    OPERATOR = "OPERATOR"
+    VIEWER = "VIEWER"
+
+
 # 1. Merchant
 class Merchant(Base):
     __tablename__ = "merchants"
@@ -264,4 +271,34 @@ class HumanApproval(Base):
     rejected_at = Column(DateTime, nullable=True)
 
     recovery_case = relationship("RecoveryCase", back_populates="approvals")
+
+
+# 10. User (Phase 8 Authentication & RBAC)
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String(50), primary_key=True, index=True)
+    email = Column(String(150), unique=True, nullable=False, index=True)
+    hashed_password = Column(String(255), nullable=False)
+    name = Column(String(150), nullable=False)
+    role = Column(String(50), default=UserRole.VIEWER.value, nullable=False, index=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    merchant_id = Column(String(50), ForeignKey("merchants.id"), nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant")
+
+
+# 11. Idempotency Record (Phase 8 Idempotency Protection)
+class IdempotencyRecord(Base):
+    __tablename__ = "idempotency_records"
+
+    id = Column(String(50), primary_key=True, index=True)
+    key = Column(String(120), unique=True, nullable=False, index=True)
+    recovery_case_id = Column(String(50), nullable=True, index=True)
+    action_type = Column(String(100), nullable=False)
+    status_code = Column(Integer, default=200, nullable=False)
+    result_json = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 

@@ -16,23 +16,45 @@ import {
   CustomerSegmentStat,
   StrategyStat,
   RecoveryOpportunity,
-  SystemStatus
+  SystemStatus,
+  User,
+  TokenResponse,
+  UserCreatePayload,
+  UserUpdatePayload,
+  SystemHealth,
+  RealtimeEvent
 } from '../types';
 
 const API_BASE = '/api';
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const url = `${API_BASE}${endpoint}`;
-  const headers = {
+
+  // Automatically attach Bearer token if present
+  const token = localStorage.getItem('payrecover_token');
+  const reqId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+
+  const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    ...(options.headers || {})
+    'X-Request-ID': reqId,
+    ...(options.headers as Record<string, string> || {})
   };
+
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
 
   try {
     const res = await fetch(url, { ...options, headers });
     if (!res.ok) {
+      if (res.status === 401 && !endpoint.includes('/auth/login')) {
+        // Session expired or invalid
+        localStorage.removeItem('payrecover_token');
+        localStorage.removeItem('payrecover_user');
+        window.dispatchEvent(new CustomEvent('payrecover:unauthorized'));
+      }
       const errBody = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(errBody.detail || `Request failed with status ${res.status}`);
+      throw new Error(errBody.detail || errBody.error?.message || `Request failed with status ${res.status}`);
     }
     return await res.json();
   } catch (err: any) {
@@ -42,13 +64,60 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 }
 
 export const api = {
-  // Health
-  getHealth: () => request<{ status: string; service: string; redis_connected: boolean }>('/health'),
+  // ─── Authentication (Phase 8) ──────────────────────────────────
+  login: (email: string, password: string) =>
+    request<TokenResponse>('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify({ email, password })
+    }),
 
-  // Dashboard
-  getMetrics: () => request<DashboardMetrics>('/dashboard/metrics'),
+  logout: () =>
+    request<{ message: string }>('/auth/logout', { method: 'POST' }),
 
-  // Payments
+  getMe: () =>
+    request<User>('/auth/me'),
+
+  // ─── User Management (Phase 8 Admin) ──────────────────────────
+  getUsers: () =>
+    request<User[]>('/users'),
+
+  createUser: (payload: UserCreatePayload) =>
+    request<User>('/users', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  getUser: (userId: string) =>
+    request<User>(`/users/${userId}`),
+
+  updateUser: (userId: string, payload: UserUpdatePayload) =>
+    request<User>(`/users/${userId}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    }),
+
+  toggleUserActive: (userId: string) =>
+    request<User>(`/users/${userId}/toggle-active`, { method: 'POST' }),
+
+  // ─── Real-Time Operations (Phase 8) ───────────────────────────
+  getRecentEvents: (limit: number = 50) =>
+    request<RealtimeEvent[]>(`/events/recent?limit=${limit}`),
+
+  // ─── System Health & Status ───────────────────────────────────
+  getHealth: () =>
+    request<{ status: string; service: string; redis_connected: boolean }>('/health'),
+
+  getSystemStatus: () =>
+    request<SystemStatus>('/system/status'),
+
+  getSystemHealth: () =>
+    request<SystemHealth>('/system/health'),
+
+  // ─── Dashboard Metrics ────────────────────────────────────────
+  getMetrics: () =>
+    request<DashboardMetrics>('/dashboard/metrics'),
+
+  // ─── Payments & Cases ─────────────────────────────────────────
   getPayments: (params: { status?: string; method?: string; search?: string; limit?: number } = {}) => {
     const query = new URLSearchParams();
     if (params.status) query.append('status', params.status);
@@ -58,28 +127,37 @@ export const api = {
     return request<Payment[]>(`/payments?${query.toString()}`);
   },
 
-  getPayment: (id: string) => request<Payment>(`/payments/${id}`),
+  getPayment: (id: string) =>
+    request<Payment>(`/payments/${id}`),
 
-  // Recovery Cases
-  getRecoveryCases: (status?: string) => {
-    const query = status ? `?status=${status}` : '';
-    return request<RecoveryCase[]>(`/recovery/cases${query}`);
+  getRecoveryCases: (params: string | { status?: string; limit?: number } = {}) => {
+    const query = new URLSearchParams();
+    if (typeof params === 'string') {
+      if (params) query.append('status', params);
+    } else {
+      if (params.status) query.append('status', params.status);
+      if (params.limit) query.append('limit', params.limit.toString());
+    }
+    return request<RecoveryCase[]>(`/recovery/cases?${query.toString()}`);
   },
 
-  getRecoveryCase: (id: string) => request<RecoveryCase>(`/recovery/cases/${id}`),
+  getRecoveryCase: (id: string) =>
+    request<RecoveryCase>(`/recovery/cases/${id}`),
 
-  // Agent Activity
-  getAgentActivity: (limit: number = 50) => request<AgentAction[]>(`/agent/activity?limit=${limit}`),
+  getAgentActivity: (limit: number = 50) =>
+    request<AgentAction[]>(`/agent/activity?limit=${limit}`),
 
-  // Guardrails
-  getGuardrails: () => request<Guardrails>('/guardrails'),
+  // ─── Guardrails ───────────────────────────────────────────────
+  getGuardrails: () =>
+    request<Guardrails>('/guardrails'),
+
   updateGuardrails: (guardrails: Partial<Guardrails>) =>
     request<Guardrails>('/guardrails', {
       method: 'PUT',
       body: JSON.stringify(guardrails)
     }),
 
-  // AI & Simulation
+  // ─── AI & Simulation ──────────────────────────────────────────
   analyzePayment: (paymentId: string) =>
     request<any>('/ai/analyze-payment', {
       method: 'POST',
@@ -116,14 +194,18 @@ export const api = {
       body: JSON.stringify({ scenario_type: scenarioType, amount })
     }),
 
-  executeRecovery: (caseId: string, payload?: ToolExecutionRequest) =>
+  executeRecovery: (caseId: string, payload?: ToolExecutionRequest, idempotencyKey?: string) =>
     request<ToolExecutionResult>(`/recovery/${caseId}/execute`, {
       method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
       body: payload ? JSON.stringify(payload) : undefined
     }),
 
-  approveCase: (caseId: string) =>
-    request<ToolExecutionResult>(`/recovery/${caseId}/approve`, { method: 'POST' }),
+  approveCase: (caseId: string, idempotencyKey?: string) =>
+    request<ToolExecutionResult>(`/recovery/${caseId}/approve`, {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined
+    }),
 
   rejectCase: (caseId: string, reason?: string) =>
     request<{ message: string; case_id: string; status: string }>(`/recovery/${caseId}/reject`, {
@@ -134,7 +216,7 @@ export const api = {
   confirmSettlement: (caseId: string) =>
     request<any>(`/recovery/${caseId}/confirm-settlement`, { method: 'POST' }),
 
-  // Phase 6: Autonomous Recovery
+  // ─── Phase 6: Autonomous Recovery ─────────────────────────────
   runAutonomousRecovery: (caseId: string, customerMessage?: string) =>
     request<AutonomousRecoveryResult>(`/recovery/${caseId}/autonomous`, {
       method: 'POST',
@@ -144,7 +226,7 @@ export const api = {
   getAutonomousStatus: (caseId: string) =>
     request<Record<string, any>>(`/recovery/${caseId}/autonomous/status`),
 
-  // Phase 7: Analytics
+  // ─── Phase 7: Analytics ───────────────────────────────────────
   getAnalyticsOverview: () => request<AnalyticsOverview>('/analytics/overview'),
 
   getRecoveryTrends: (period: '7d' | '30d' | '90d' = '7d') =>
@@ -162,7 +244,5 @@ export const api = {
     request<{ strategies: StrategyStat[] }>('/analytics/strategies'),
 
   getRecoveryOpportunities: (limit = 10) =>
-    request<{ opportunities: RecoveryOpportunity[] }>(`/analytics/opportunities?limit=${limit}`),
-
-  getSystemStatus: () => request<SystemStatus>('/system/status'),
+    request<{ opportunities: RecoveryOpportunity[] }>(`/analytics/opportunities?limit=${limit}`)
 };

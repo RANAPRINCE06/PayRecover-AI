@@ -1,8 +1,9 @@
+import json
 import uuid
 import random
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Header
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
@@ -21,8 +22,13 @@ from app.models.entities import (
     FailureReason,
     AgentType,
     ActionType,
-    ActionStatus
+    ActionStatus,
+    User,
+    UserRole
 )
+from app.core.auth import get_optional_user
+from app.services.event_service import event_service
+from app.services.idempotency_service import IdempotencyService
 from app.schemas.contracts import (
     DashboardMetrics,
     PaymentSchema,
@@ -223,7 +229,16 @@ def get_guardrails(db: Session = Depends(get_db)):
 
 
 @router.put("/guardrails", response_model=GuardrailSchema, tags=["Guardrails"])
-def update_guardrails(payload: GuardrailUpdateSchema, db: Session = Depends(get_db)):
+def update_guardrails(
+    payload: GuardrailUpdateSchema,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    if current_user and current_user.role != UserRole.ADMIN.value:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{current_user.role}' is unauthorized to modify merchant guardrails. Admin required."
+        )
     guardrail = guardrail_service.get_or_create_guardrails(db)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(guardrail, field, value)
@@ -384,11 +399,34 @@ def simulate_recovery_pipeline(payload: SimulateRecoveryRequest, db: Session = D
     db.add(case)
     db.commit()
 
+    # Broadcast simulated events for real-time live activity feed
+    event_service.broadcast_sync(
+        event_type="PAYMENT_FAILED",
+        message=f"Payment failed for ₹{payment.amount:,.0f} ({scenario['payment_method']}: {scenario['failure_reason']})",
+        case_id=case.id,
+        payment_id=payment.id,
+        amount=payment.amount
+    )
+    event_service.broadcast_sync(
+        event_type="CASE_CREATED",
+        message=f"Recovery case {case.id} created for {scenario['title']}",
+        case_id=case.id,
+        payment_id=payment.id,
+        amount=payment.amount
+    )
+
     # Run Multi-Agent Orchestrator Pipeline
     result = orchestrator.execute_recovery_pipeline(
         db=db,
         recovery_case_id=case.id,
         customer_reply_text="Yes, my card failed. Can I pay via UPI?"
+    )
+
+    event_service.broadcast_sync(
+        event_type="RECOVERY_EXECUTED",
+        message=f"Autonomous recovery pipeline completed for {case.id}",
+        case_id=case.id,
+        amount=payment.amount
     )
 
     return {
@@ -406,17 +444,72 @@ def simulate_recovery_pipeline(payload: SimulateRecoveryRequest, db: Session = D
 def execute_case_recovery(
     case_id: str,
     payload: Optional[ToolExecutionRequest] = None,
-    db: Session = Depends(get_db)
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
+    if current_user and current_user.role not in [UserRole.ADMIN.value, UserRole.OPERATOR.value]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{current_user.role}' is not authorized to execute recovery tools. Operator or Admin required."
+        )
+
+    effective_key = idempotency_key or (payload.idempotency_key if payload else None)
+
+    # 1. Check Idempotency Cache
+    if effective_key:
+        cached_record = IdempotencyService.get(db, effective_key)
+        if cached_record:
+            try:
+                cached_data = json.loads(cached_record.result_json)
+                return ToolExecutionResult(**cached_data)
+            except Exception:
+                pass
+
+    # 2. Concurrency check: If already recovered, prevent double execution
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Recovery case '{case_id}' not found")
+    if case.status == RecoveryStatus.RECOVERED.value:
+        return ToolExecutionResult(
+            execution_id=f"exec_settled_{case.id}",
+            recovery_case_id=case.id,
+            payment_id=case.payment_id,
+            customer_id=case.payment.customer_id if case.payment else "",
+            tool_type=ToolType.VERIFY_PAYMENT.value,
+            status=ToolExecutionStatus.SUCCESS.value,
+            success=True,
+            message="Payment has already been successfully recovered and settled.",
+            guardrail_status="SAFE",
+            created_at=datetime.utcnow()
+        )
+
     try:
-        return ToolExecutor.execute(
+        res = ToolExecutor.execute(
             db=db,
             recovery_case_id=case_id,
             tool_type=payload.tool_type if payload else None,
             parameters=payload.parameters if payload else None,
-            idempotency_key=payload.idempotency_key if payload else None,
+            idempotency_key=effective_key,
             approval_token=payload.approval_token if payload else None
         )
+        if effective_key:
+            IdempotencyService.save(
+                db=db,
+                key=effective_key,
+                recovery_case_id=case_id,
+                action_type="EXECUTE",
+                status_code=200,
+                result=res.model_dump()
+            )
+        event_service.broadcast_sync(
+            event_type="RECOVERY_EXECUTED",
+            message=f"Executed tool {res.tool_type} for case {case_id}",
+            case_id=case_id,
+            amount=res.amount,
+            tool_type=res.tool_type
+        )
+        return res
     except ValueError as val_err:
         err_msg = str(val_err)
         if "not found" in err_msg.lower():
@@ -427,9 +520,45 @@ def execute_case_recovery(
 
 
 @router.post("/recovery/{case_id}/approve", response_model=ToolExecutionResult, tags=["Recovery Engine"])
-def approve_recovery_case(case_id: str, db: Session = Depends(get_db)):
+def approve_recovery_case(
+    case_id: str,
+    idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
+):
+    if current_user and current_user.role not in [UserRole.ADMIN.value, UserRole.OPERATOR.value]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{current_user.role}' is not authorized to approve high-value cases. Operator or Admin required."
+        )
+
+    if idempotency_key:
+        cached_record = IdempotencyService.get(db, idempotency_key)
+        if cached_record:
+            try:
+                cached_data = json.loads(cached_record.result_json)
+                return ToolExecutionResult(**cached_data)
+            except Exception:
+                pass
+
     try:
-        return ToolExecutor.approve_case(db=db, case_id=case_id)
+        res = ToolExecutor.approve_case(db=db, case_id=case_id)
+        if idempotency_key:
+            IdempotencyService.save(
+                db=db,
+                key=idempotency_key,
+                recovery_case_id=case_id,
+                action_type="APPROVE",
+                status_code=200,
+                result=res.model_dump()
+            )
+        event_service.broadcast_sync(
+            event_type="RECOVERY_EXECUTED",
+            message=f"Approved high-value recovery case {case_id}",
+            case_id=case_id,
+            amount=res.amount
+        )
+        return res
     except ValueError as val_err:
         err_msg = str(val_err)
         if "not found" in err_msg.lower():
@@ -443,10 +572,22 @@ def approve_recovery_case(case_id: str, db: Session = Depends(get_db)):
 def reject_recovery_case(
     case_id: str,
     reason: str = Body("Merchant rejected automated outreach", embed=True),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_optional_user)
 ):
+    if current_user and current_user.role not in [UserRole.ADMIN.value, UserRole.OPERATOR.value]:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Role '{current_user.role}' is not authorized to reject recovery cases."
+        )
     try:
-        return ToolExecutor.reject_case(db=db, case_id=case_id, reason=reason)
+        res = ToolExecutor.reject_case(db=db, case_id=case_id, reason=reason)
+        event_service.broadcast_sync(
+            event_type="RECOVERY_BLOCKED",
+            message=f"Recovery case {case_id} rejected: {reason}",
+            case_id=case_id
+        )
+        return res
     except ValueError as val_err:
         err_msg = str(val_err)
         if "not found" in err_msg.lower():
@@ -481,6 +622,15 @@ def confirm_settlement(case_id: str, db: Session = Depends(get_db)):
     )
     db.add(action)
     db.commit()
+
+    # Broadcast settlement event
+    event_service.broadcast_sync(
+        event_type="PAYMENT_RECOVERED",
+        message=f"Payment #{payment.razorpay_payment_id} recovered: ₹{payment.amount:,.2f} settled successfully",
+        case_id=case.id,
+        payment_id=payment.id,
+        amount=payment.amount
+    )
 
     # Clear dashboard cache
     redis_service.delete("dashboard:metrics")

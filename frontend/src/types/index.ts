@@ -433,6 +433,116 @@ export interface RecoveryOpportunity {
   started_at?: string | null;
 }
 
+
+
+// Phase 7: Analytics Types
+
+export interface AnalyticsOverview {
+  revenue_processed: number;
+  revenue_at_risk: number;
+  revenue_recovered: number;
+  predicted_recoverable: number;
+  recovery_rate: number;
+  failed_payments_count: number;
+  recovered_payments_count: number;
+  active_cases_count: number;
+  recovered_cases_count: number;
+  awaiting_approval_count: number;
+  total_cases: number;
+  average_recovery_score: number;
+  total_recovery_attempts: number;
+  ai_automation_rate: number;
+  total_agent_actions: number;
+}
+
+export interface TrendDay {
+  date: string;
+  failed: number;
+  recovered: number;
+  at_risk: number;
+  recovered_amount: number;
+}
+
+export interface RecoveryTrend {
+  period: string;
+  days: number;
+  data: TrendDay[];
+}
+
+export interface FailureByReason {
+  reason: string;
+  count: number;
+  amount: number;
+  recovered: number;
+  recovered_amount: number;
+  recovery_rate: number;
+  total_transactions: number;
+}
+
+export interface FailureByMethod {
+  method: string;
+  failed: number;
+  recovered: number;
+  failed_amount: number;
+  recovered_amount: number;
+  recovery_rate: number;
+  total: number;
+}
+
+export interface FailureAnalytics {
+  by_reason: FailureByReason[];
+  by_method: FailureByMethod[];
+}
+
+export interface PaymentMethodStat {
+  method: string;
+  total: number;
+  failed: number;
+  recovered: number;
+  total_amount: number;
+  failed_amount: number;
+  recovered_amount: number;
+  recovery_rate: number;
+}
+
+export interface CustomerSegmentStat {
+  segment: string;
+  customer_count: number;
+  failed_payments: number;
+  total_failed_amount: number;
+  recovered_amount: number;
+  recovered_count: number;
+  recovery_rate: number;
+}
+
+export interface StrategyStat {
+  strategy: string;
+  attempts: number;
+  recovered: number;
+  success_rate: number;
+  recovered_amount: number;
+  avg_recovery_probability: number;
+}
+
+export interface RecoveryOpportunity {
+  case_id: string;
+  payment_id: string;
+  customer_id?: string | null;
+  customer_name: string;
+  amount: number;
+  currency: string;
+  payment_method?: string;
+  failure_reason?: string;
+  recovery_probability: number;
+  recovery_score: number;
+  expected_recovery_value: number;
+  current_strategy?: string | null;
+  customer_intent?: string | null;
+  status: string;
+  guardrail_hint: string;
+  started_at?: string | null;
+}
+
 export interface SystemComponentStatus {
   status: string;
   detail: string;
@@ -442,4 +552,74 @@ export interface SystemStatus {
   overall: string;
   components: Record<string, SystemComponentStatus>;
   timestamp: string;
+}
+
+// ─── Phase 8: Auth, RBAC & Realtime Types ─────────────────────────
+
+export type UserRole = 'ADMIN' | 'ANALYST' | 'OPERATOR' | 'VIEWER';
+
+export interface User {
+  id: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  is_active: boolean;
+  merchant_id?: string | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface TokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+  user: User;
+}
+
+export interface LoginRequest {
+  email: string;
+  password: string;
+}
+
+export interface UserCreatePayload {
+  email: string;
+  name: string;
+  role: UserRole;
+  password: string;
+  merchant_id?: string | null;
+}
+
+export interface UserUpdatePayload {
+  name?: string;
+  role?: UserRole;
+  is_active?: boolean;
+  password?: string;
+}
+
+export interface SystemHealth {
+  status: string;
+  services: {
+    api: string;
+    database: string;
+    redis: string;
+    ai: string;
+    payment_engine: string;
+    [key: string]: string;
+  };
+  timestamp?: string;
+}
+
+export interface RealtimeEvent {
+  id: string;
+  type: string;
+  message: string;
+  timestamp: string;
+  case_id?: string | null;
+  payment_id?: string | null;
+  amount?: number | null;
+  status?: string | null;
+  agent_type?: string | null;
+  tool_type?: string | null;
+  data?: Record<string, any>;
+  correlation_id?: string | null;
 }

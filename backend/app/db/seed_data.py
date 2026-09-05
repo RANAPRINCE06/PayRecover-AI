@@ -35,9 +35,12 @@ def seed_database(db: Session = None):
         own_session = True
 
     try:
+        # Ensure default Phase 8 users exist
+        _seed_default_users(db)
+
         # Check if already seeded
         if db.query(Customer).count() >= 30:
-            print("[SEED] Database already contains sufficient seed data. Skipping full seed.")
+            print("[SEED] Database already contains sufficient seed data. Skipping full customer seed.")
             return
 
         print("[SEED] Starting comprehensive seed generation for PayRecover AI...")
@@ -396,6 +399,63 @@ def seed_database(db: Session = None):
     finally:
         if own_session:
             db.close()
+
+
+def _seed_default_users(db: Session):
+    """Seed the 4 default role-based accounts for Phase 8 testing and operation."""
+    from app.models.entities import User, UserRole
+    from app.core.auth import hash_password
+
+    default_users = [
+        {
+            "id": "usr_admin_default",
+            "email": "admin@payrecover.ai",
+            "name": "Sarah Chen",
+            "role": UserRole.ADMIN.value,
+            "password": "Admin@123"
+        },
+        {
+            "id": "usr_analyst_default",
+            "email": "analyst@payrecover.ai",
+            "name": "Dev Sharma",
+            "role": UserRole.ANALYST.value,
+            "password": "Analyst@123"
+        },
+        {
+            "id": "usr_operator_default",
+            "email": "operator@payrecover.ai",
+            "name": "Priya Nair",
+            "role": UserRole.OPERATOR.value,
+            "password": "Operator@123"
+        },
+        {
+            "id": "usr_viewer_default",
+            "email": "viewer@payrecover.ai",
+            "name": "Rohan Mehta",
+            "role": UserRole.VIEWER.value,
+            "password": "Viewer@123"
+        }
+    ]
+
+    created_count = 0
+    for u_data in default_users:
+        existing = db.query(User).filter(User.email == u_data["email"]).first()
+        if not existing:
+            u = User(
+                id=u_data["id"],
+                email=u_data["email"],
+                name=u_data["name"],
+                role=u_data["role"],
+                hashed_password=hash_password(u_data["password"]),
+                is_active=True,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            db.add(u)
+            created_count += 1
+    if created_count > 0:
+        db.commit()
+        print(f"[SEED] Created {created_count} default system users.")
 
 
 if __name__ == "__main__":

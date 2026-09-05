@@ -7,9 +7,13 @@ from fastapi.responses import JSONResponse
 from app.core.config import settings
 from app.db.session import engine, Base
 from app.db.seed_data import seed_database
+from app.core.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
 from app.api.routes import router as api_router
 from app.api.analytics import router as analytics_router
 from app.api.system_status import router as system_router
+from app.api.auth import router as auth_router
+from app.api.users import router as users_router
+from app.api.events import router as events_router
 
 # Setup logging
 logging.basicConfig(
@@ -40,6 +44,10 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+# Custom Middlewares (Correlation ID and Security Headers)
+app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
@@ -52,14 +60,25 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled Exception at {request.url.path}: {exc}", exc_info=True)
+    req_id = getattr(request.state, "request_id", "req_unknown")
+    logger.error(f"[{req_id}] Unhandled Exception at {request.url.path}: {exc}", exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "An internal server error occurred.", "path": str(request.url.path)}
+        content={
+            "error": {
+                "code": "INTERNAL_SERVER_ERROR",
+                "message": "An internal server error occurred.",
+                "request_id": req_id
+            },
+            "detail": "An internal server error occurred."
+        }
     )
 
 
-# Mount API routes under /api
+# Mount API routers
+app.include_router(auth_router, prefix="/api/auth")
+app.include_router(users_router, prefix="/api/users")
+app.include_router(events_router, prefix="/api/events")
 app.include_router(api_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api/analytics")
 app.include_router(system_router, prefix="/api/system")
