@@ -151,6 +151,11 @@ class Payment(Base):
     customer = relationship("Customer", back_populates="payments")
     recovery_case = relationship("RecoveryCase", back_populates="payment", uselist=False)
 
+    __table_args__ = (
+        Index("idx_payment_status_created", "status", "created_at"),
+        Index("idx_payment_customer_created", "customer_id", "created_at"),
+    )
+
 
 # 4. Recovery Case
 class RecoveryCase(Base):
@@ -175,6 +180,11 @@ class RecoveryCase(Base):
     tool_executions = relationship("ToolExecution", back_populates="recovery_case", order_by="ToolExecution.created_at")
     approvals = relationship("HumanApproval", back_populates="recovery_case", order_by="HumanApproval.created_at")
 
+    __table_args__ = (
+        Index("idx_case_status_started", "status", "started_at"),
+        Index("idx_case_score", "recovery_score"),
+    )
+
 
 # 5. Agent Action
 class AgentAction(Base):
@@ -190,6 +200,10 @@ class AgentAction(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
     recovery_case = relationship("RecoveryCase", back_populates="actions")
+
+    __table_args__ = (
+        Index("idx_action_case_created", "recovery_case_id", "created_at"),
+    )
 
 
 # 6. Merchant Guardrails

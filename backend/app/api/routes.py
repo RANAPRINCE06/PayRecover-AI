@@ -739,3 +739,21 @@ def get_autonomous_recovery_status(case_id: str, db: Session = Depends(get_db)):
         "started_at": case.started_at.isoformat() if case.started_at else None,
         "completed_at": case.completed_at.isoformat() if case.completed_at else None
     }
+
+
+# 15. Reset Demo Environment
+@router.post("/demo/reset", tags=["Demo Center"])
+def reset_demo_environment(db: Session = Depends(get_db)):
+    """
+    Cleans up simulated test cases, resets merchant guardrails to baseline,
+    and returns a clean slate for buildathon demonstrations.
+    """
+    from app.db.seed_data import reset_demo_data
+    result = reset_demo_data(db)
+    event_service.broadcast_sync(
+        event_type="DEMO_RESET",
+        message="Demo data and simulation environment reset to clean baseline",
+        amount=0.0
+    )
+    return result
+

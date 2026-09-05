@@ -458,5 +458,63 @@ def _seed_default_users(db: Session):
         print(f"[SEED] Created {created_count} default system users.")
 
 
+def reset_demo_data(db: Session = None):
+    """
+    Cleans up simulated demo cases and resets merchant guardrails to default baseline.
+    Ensures seed customers and system users remain intact.
+    """
+    own_session = False
+    if db is None:
+        db = SessionLocal()
+        own_session = True
+
+    try:
+        # 1. Delete simulated actions, approvals, and cases
+        sim_cases = db.query(RecoveryCase).filter(
+            (RecoveryCase.id.like("rc_sim_%")) | (RecoveryCase.id.like("rc_sample_%"))
+        ).all()
+        sim_case_ids = [c.id for c in sim_cases]
+
+        if sim_case_ids:
+            db.query(AgentAction).filter(AgentAction.recovery_case_id.in_(sim_case_ids)).delete(synchronize_session=False)
+            db.query(CustomerInteraction).filter(CustomerInteraction.recovery_case_id.in_(sim_case_ids)).delete(synchronize_session=False)
+            for c in sim_cases:
+                db.delete(c)
+
+        # 2. Delete simulated payments
+        sim_payments = db.query(Payment).filter(
+            (Payment.id.like("pay_sim_%")) | (Payment.id.like("pay_sample_%"))
+        ).all()
+        for p in sim_payments:
+            db.delete(p)
+
+        # 3. Reset merchant guardrails
+        guardrail = db.query(MerchantGuardrail).filter(MerchantGuardrail.merchant_id == "merchant_primary").first()
+        if guardrail:
+            guardrail.max_retries = 3
+            guardrail.max_discount_percentage = 10.0
+            guardrail.max_campaign_days = 3
+            guardrail.quiet_hours_start = "22:00"
+            guardrail.quiet_hours_end = "08:00"
+            guardrail.high_value_threshold = 50000.0
+            guardrail.human_approval_required = True
+            guardrail.max_contact_attempts = 4
+
+        # 4. Ensure default users exist
+        _seed_default_users(db)
+
+        db.commit()
+        return {
+            "status": "SUCCESS",
+            "message": "Demo data and simulations reset successfully.",
+            "cleared_cases": len(sim_cases),
+            "cleared_payments": len(sim_payments)
+        }
+    finally:
+        if own_session:
+            db.close()
+
+
 if __name__ == "__main__":
     seed_database()
+

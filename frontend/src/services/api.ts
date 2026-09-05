@@ -200,6 +200,11 @@ export const api = {
       body: JSON.stringify({ scenario_type: scenarioType, amount })
     }),
 
+  resetDemoData: () =>
+    request<{ status: string; message: string; cleared_cases?: number; cleared_payments?: number }>('/demo/reset', {
+      method: 'POST'
+    }),
+
   executeRecovery: (caseId: string, payload?: ToolExecutionRequest, idempotencyKey?: string) =>
     request<ToolExecutionResult>(`/recovery/${caseId}/execute`, {
       method: 'POST',

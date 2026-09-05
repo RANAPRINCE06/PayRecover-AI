@@ -17,6 +17,7 @@ import {
   CreditCard,
   Smartphone,
   Layers,
+  RotateCcw,
   Check
 } from 'lucide-react';
 import { api } from '../services/api';
@@ -101,12 +102,12 @@ const DEMO_SCENARIOS: DemoScenario[] = [
     amount: 999,
     paymentMethod: 'CARD',
     failureReason: 'SUBSCRIPTION_FAILED',
-    customerProfile: 'VIP Subscriber · 12 Continuous Renewals',
+    customerProfile: 'VIP · 12 Month Retention',
     expectedStrategy: 'AUTO_RETRY_MANDATE_UPDATE',
-    guardrailBehavior: 'PASS — Safe customer update link generated',
+    guardrailBehavior: 'PASS — Direct WhatsApp e-mandate refresh',
     tag: 'RECURRING SAAS',
-    color: 'border-purple-500/40 bg-purple-500/5 text-purple-400',
-    description: 'Card e-mandate authentication expired under RBI recurring guidelines. AI issues automated WhatsApp update mandate prompt allowing customer to re-authorize in 2 clicks.'
+    color: 'border-fuchsia-500/40 bg-fuchsia-500/5 text-fuchsia-400',
+    description: 'Recurring auto-debit subscription mandate expired at issuing bank. System routes directly to customer WhatsApp with 1-tap card mandate re-authentication.'
   }
 ];
 
@@ -119,10 +120,27 @@ export const DemoCenter: React.FC<DemoCenterProps> = ({ onSelectPaymentId, onRef
   const { showSuccess, showError, showInfo } = useToast();
   const [selectedScenarioId, setSelectedScenarioId] = useState<string>('DEMO_CARD_DECLINE_UPI');
   const [executing, setExecuting] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [executionResult, setExecutionResult] = useState<any | null>(null);
   const [executionStep, setExecutionStep] = useState<number>(0);
 
   const currentScenario = DEMO_SCENARIOS.find((s) => s.id === selectedScenarioId) || DEMO_SCENARIOS[0];
+
+  const handleResetDemo = async () => {
+    if (!window.confirm('Reset demo simulations and restore baseline test environment?')) return;
+    setResetting(true);
+    try {
+      const res = await api.resetDemoData();
+      showSuccess('Sandbox Reset Complete', res?.message || 'Demo simulations cleared successfully.');
+      setExecutionResult(null);
+      setExecutionStep(0);
+      if (onRefreshAll) onRefreshAll();
+    } catch (err: any) {
+      showError('Reset Failed', err?.message || 'Could not reset demo environment');
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const handleRunDemo = async () => {
     setExecuting(true);
@@ -179,8 +197,17 @@ export const DemoCenter: React.FC<DemoCenterProps> = ({ onSelectPaymentId, onRef
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="px-2.5 py-1 rounded-full text-[11px] font-mono font-bold bg-brand-cyan/10 border border-brand-cyan/30 text-brand-cyan flex items-center gap-1.5">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleResetDemo}
+            disabled={resetting || executing}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium bg-dark-800 border border-dark-600 hover:border-red-500/50 hover:bg-red-500/10 text-slate-300 hover:text-red-300 transition-all flex items-center gap-1.5 disabled:opacity-50"
+            title="Clean up simulated demo cases and reset guardrails"
+          >
+            <RotateCcw className={`w-3.5 h-3.5 ${resetting ? 'animate-spin text-red-400' : ''}`} />
+            {resetting ? 'Resetting...' : 'Reset Sandbox'}
+          </button>
+          <span className="px-2.5 py-1.5 rounded-xl text-[11px] font-mono font-bold bg-brand-cyan/10 border border-brand-cyan/30 text-brand-cyan flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-brand-cyan animate-pulse" />
             LIVE PIPELINE READY
           </span>

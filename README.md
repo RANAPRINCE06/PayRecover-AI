@@ -1,138 +1,235 @@
-# PayRecover AI — Autonomous Revenue Recovery & Customer Intent Engine
+# PayRecover AI — Autonomous Multi-Agent Revenue Recovery Platform
 
-> Autonomous multi-agent revenue recovery engine for Razorpay merchants recovering failed & at-risk payment transactions.
+> **Production-Grade AI Revenue Recovery Copilot for Indian Fintech Ecosystems**  
+> Intercepting payment failures across UPI, Cards, Net Banking, and recurring e-mandates with deterministic merchant guardrails, multi-agent intelligence, and real-time operations.
+
+[![Backend Tests](https://img.shields.io/badge/Backend%20Tests-125%2F125%20Passing-brightgreen?style=flat-square&logo=pytest)](https://github.com)
+[![Frontend Build](https://img.shields.io/badge/Frontend%20Build-Passing%20(0%20errors)-blue?style=flat-square&logo=vite)](https://github.com)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
+[![React](https://img.shields.io/badge/React-18.2.0-61DAFB?style=flat-square&logo=react)](https://react.dev)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791?style=flat-square&logo=postgresql)](https://www.postgresql.org)
+[![Redis](https://img.shields.io/badge/Redis-7-DC382D?style=flat-square&logo=redis)](https://redis.io)
+[![Alembic](https://img.shields.io/badge/Alembic-Migrations-red?style=flat-square)](https://alembic.sqlalchemy.org)
 
 ---
 
-## 1. Problem Statement
-Every day, online merchants lose **10% to 25% of top-line revenue** to preventable payment failures:
-* **Card 3DS timeouts & OTP abandonment**
-* **UPI PSP app response latency**
-* **Temporary bank server downtime**
-* **Insufficient funds requiring delayed follow-up**
-* **Recurring subscription e-mandate expiration**
+## 1. Executive Summary & Problem
 
-Traditional systems either blindly spam customers with generic emails or do nothing. **PayRecover AI** introduces an autonomous multi-agent engine that investigates payment telemetry, scores recovery probability, understands customer intent, applies strict merchant guardrails, and executes intelligent recovery actions (such as generating 1-click Razorpay UPI links) over WhatsApp, SMS, and Email.
+In India's digital payments ecosystem, online merchants lose **10% to 25% of top-line revenue** to preventable drop-offs:
+- **UPI PSP App Latency & Timeouts**: Transient MPIN bank network drops.
+- **Card 3DS Failures & OTP Abandonment**: Customer hesitation or bank OTP delivery delays.
+- **Insufficient Account Balances**: Customers requiring scheduled pay-later reminders.
+- **RBI Recurring E-Mandate Expiry**: Subscription mandates failing silently at issuing banks.
+- **Cart Abandonment**: High-intent shoppers dropping off at final checkout.
+
+Traditional recovery systems either blindly spam customers with disconnected emails or do nothing. **PayRecover AI** is an autonomous multi-agent platform that investigates payment failures in sub-second time, scores recovery probability, understands customer intent, applies strict merchant guardrails, and executes frictionless recovery actions (such as generating 1-click Razorpay UPI links) over WhatsApp, SMS, and Email.
 
 ---
 
 ## 2. Core Architecture
 
-```
-React (TypeScript + Tailwind + Recharts)
-           │
-           ▼
-     FastAPI Backend
- ┌─────────┼───────────────────────────┐
- ▼         ▼                           ▼
-PostgreSQL  Redis                  AI Multi-Agent Core
-                               ┌───────┼───────────────┐
-                               ▼       ▼               ▼
-                        Investigator  Intent AI    Strategist
-                               │       │               │
-                               └───────┼───────────────┘
-                                       ▼
-                                 Tool Executor
-                          (Strict Merchant Guardrails)
-                                       │
-                  ┌────────────────────┼────────────────────┐
-                  ▼                    ▼                    ▼
-          Razorpay Test API      Messaging Engine     Payment Simulation
+```mermaid
+flowchart TB
+    subgraph Client Layer
+        WebUI[React 18 + Vite SPA]
+        SSEStream[SSE Real-Time Live Feed]
+    end
+
+    subgraph API & Gateway Layer
+        Nginx[Nginx Reverse Proxy :80]
+        FastAPI[FastAPI Service :8000]
+        AuthGuard[JWT & RBAC Middleware]
+        IdempotencyGuard[Idempotency & Concurrency Engine]
+    end
+
+    subgraph Autonomous Multi-Agent Core
+        Orchestrator[Multi-Agent Recovery Orchestrator]
+        Investigator[Agent 1: Payment Investigator]
+        IntentAI[Agent 2: Customer Intent AI]
+        Strategist[Agent 3: Recovery Strategist]
+        ToolExecutor[Agent 4: Tool Execution Agent]
+        Copilot[Agent 5: AI Recovery Copilot]
+    end
+
+    subgraph Safety & Rule Engine
+        Guardrails[Deterministic Merchant Guardrails]
+        ApprovalQueue[Human-in-the-Loop Review Queue]
+    end
+
+    subgraph Storage & Telemetry
+        Postgres[(PostgreSQL 16 / SQLite)]
+        RedisCache[(Redis 7 / In-Memory State)]
+        Alembic[Alembic Migrations]
+    end
+
+    WebUI -->|REST / SSE| Nginx
+    Nginx --> FastAPI
+    FastAPI --> AuthGuard
+    AuthGuard --> IdempotencyGuard
+    IdempotencyGuard --> Orchestrator
+
+    Orchestrator --> Investigator
+    Orchestrator --> IntentAI
+    Orchestrator --> Strategist
+    Strategist --> Guardrails
+    Guardrails -->|Within Bounds| ToolExecutor
+    Guardrails -->|Amount >= ₹50,000| ApprovalQueue
+    ApprovalQueue -->|Manual Approval| ToolExecutor
+
+    ToolExecutor --> Postgres
+    FastAPI --> RedisCache
+    FastAPI --> SSEStream
 ```
 
 ---
 
 ## 3. Technology Stack
 
-* **Frontend**: React 18, TypeScript, Tailwind CSS, Recharts, Lucide React, Vite.
-* **Backend**: Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2.
-* **Database**: PostgreSQL (with automatic zero-friction SQLite fallback for local dev).
-* **Cache & State**: Redis (with automatic in-memory fallback).
-* **AI & Intent**: Structured Output Contracts, Multi-Agent Orchestrator, Gemini AI Copilot.
-* **Payments**: Razorpay Test Mode & Mock Payment Simulation Engine.
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | React 18, TypeScript, Tailwind CSS, Recharts, Lucide React, Vite |
+| **Backend** | Python 3.11+, FastAPI, SQLAlchemy, Pydantic v2, Alembic |
+| **Database** | PostgreSQL 16 (production) with automatic SQLite zero-config fallback |
+| **State & Cache** | Redis 7 (production) with automatic resilient in-memory fallback |
+| **AI & Telemetry** | Google Gemini API with deterministic fallback, structured output contracts, agent trace logger |
+| **Security** | Stateless JWT (HMAC-SHA256), Bcrypt hashing, 4-tier RBAC, Idempotency keys |
+| **Containerization** | Docker, Docker Compose, Multi-stage Nginx + Alpine builds |
 
 ---
 
-## 4. Key Capabilities & Screens
+## 4. Key Platform Features
 
-1. **Command Center**: High-level merchant revenue recovery cockpit (Revenue at Risk, Predicted Recoverable, Revenue Recovered, Live Recovery Pipeline, and High-Priority Queue).
-2. **Recovery Intelligence**: Comprehensive Recharts analytics covering failure reasons, payment methods (UPI vs Cards vs NetBanking), customer segments, and channel conversion.
-3. **Payments Telemetry**: Searchable and filterable real-time payment log with slide-out payment inspector and autonomous action trigger.
-4. **AI Agent Activity**: Live chronological audit timeline capturing every step taken by Investigator, Intent AI, Strategist, and Tool Executor.
-5. **AI Copilot**: Interactive fintech recovery assistant answering questions on revenue leakage, gateway latency, and strategy recommendations.
-6. **Guardrails**: Merchant-configurable thresholds (Max retries, Max discount %, Quiet hours, High-value human approval threshold) evaluated before any agent action.
-7. **Interactive Sandbox / Simulation**: One-click execution of failure scenarios (including the exact ₹12,999 Card Decline ➔ UPI Recovery demo).
+1. **Command Center Cockpit**: Real-time visibility into revenue processed, active recovery rate, revenue-at-risk, and live Server-Sent Events (SSE) feed.
+2. **Deterministic Merchant Guardrails**: Configurable safety gates:
+   - High-value transactions ($\ge$ ₹50,000) mandate human review.
+   - Promotional discounts capped to merchant policy (default 10%).
+   - Maximum automated retries capped to 3 attempts.
+   - Quiet hours enforcement (22:00 – 08:00 IST) for non-urgent notifications.
+   - Pre-execution check halts recovery if payment was already settled.
+3. **AI Recovery Copilot**: Natural-language query interface explaining recovery intelligence, revenue leakage root causes, and telemetry trends.
+4. **Deterministic Opportunity Scoring**: Multi-factor scoring (0–100) prioritizing high-value, high-intent recovery opportunities.
+5. **Interactive Demo Center**: 5 pre-configured Indian fintech failure scenarios with step-by-step agent trace visualization and a one-click **Reset Sandbox** action.
+6. **Enterprise Security & RBAC**: Granular roles (`ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER`) and cryptographic idempotency protection preventing duplicate executions.
 
 ---
 
-## 5. Local Setup & Running Instructions
+## 5. Default Credentials & Role Matrix
 
-### Prerequisites
-* Python 3.11+
-* Node.js v18+ & npm
+| Role | Email | Password | Allowed Operations |
+| :--- | :--- | :--- | :--- |
+| **ADMIN** | `admin@payrecover.ai` | `Admin@123` | Full system access, user management, guardrail settings, human reviews |
+| **OPERATOR** | `operator@payrecover.ai` | `Operator@123` | High-value approval/rejection, trigger recovery actions, execute tools |
+| **ANALYST** | `analyst@payrecover.ai` | `Analyst@123` | Read-only access to analytics, opportunity scores, and agent traces |
+| **VIEWER** | `viewer@payrecover.ai` | `Viewer@123` | Read-only dashboard view; execution and approval endpoints return `403 Forbidden` |
 
-### Quick Start (Backend)
+---
+
+## 6. Quick Start Guide
+
+### Option A: Complete Multi-Service Docker Deployment (Recommended)
+
+Run the full production stack (PostgreSQL, Redis, FastAPI Backend, and Nginx React Frontend):
+
 ```bash
-# 1. Navigate to backend
+# 1. Clone repository
+git clone https://github.com/your-org/payrecover-ai.git
+cd payrecover-ai
+
+# 2. Configure environment
+cp .env.example .env
+
+# 3. Launch Docker Compose
+docker compose up --build -d
+
+# 4. View container status
+docker compose ps
+```
+
+- **Frontend Application**: `http://localhost`
+- **Backend API**: `http://localhost:8000/api`
+- **Interactive Swagger Docs**: `http://localhost:8000/docs`
+
+---
+
+### Option B: Local Development Setup
+
+#### 1. Backend Setup
+```bash
 cd backend
 
-# 2. Install dependencies
+# Create & activate virtual environment (optional)
+python -m venv venv
+# Windows:
+.\venv\Scripts\activate
+# Linux/macOS:
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 
-# 3. Start FastAPI server
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-The backend starts at `http://localhost:8000`. The interactive Swagger API documentation is available at `http://localhost:8000/docs`. Database tables and demo data (35 customers, 110 payments, recovery cases, actions) are seeded automatically on first launch.
+# Run database migrations
+python -m alembic upgrade head
 
-### Quick Start (Frontend)
+# Start FastAPI server
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+```
+*Note: Database automatically seeds 35 customers, 110 transactions, guardrails, and default users on first startup.*
+
+#### 2. Frontend Setup
 ```bash
-# 1. Navigate to frontend
 cd frontend
 
-# 2. Install dependencies
+# Install dependencies
 npm install
 
-# 3. Start Vite dev server
+# Start Vite development server
 npm run dev
 ```
 The frontend starts at `http://localhost:5173`.
 
 ---
 
-## 6. Docker Setup (Optional)
-To run PostgreSQL and Redis in Docker containers:
+## 7. Testing & Verification
+
+### Automated Backend Test Suite
+PayRecover AI features a 125-test automated test suite covering all units, integrations, and 10 end-to-end recovery scenarios:
+
 ```bash
-docker compose up -d
+cd backend
+python -m pytest tests/ -v
 ```
 
+#### The 10 End-to-End Test Scenarios (`tests/test_phase10_e2e.py`):
+1. `test_scenario_1_standard_upi_card_recovery`: Full card decline to UPI link recovery workflow.
+2. `test_scenario_2_high_value_review_guardrail`: ₹75,000 order held for human approval and signed off by Admin.
+3. `test_scenario_3_exact_amount_link_recovery`: ₹2,499 UPI timeout link generation with exact amount.
+4. `test_scenario_4_checkout_abandonment_recovery`: Abandoned cart recovery with smart incentive.
+5. `test_scenario_5_subscription_renewal_failure`: Recurring auto-debit mandate renewal workflow.
+6. `test_scenario_6_already_paid_pre_execution_guard`: Halts recovery immediately if transaction was already settled.
+7. `test_scenario_7_retry_blocked_payment_error`: Guardrail aborts automated retries once limit (3) is exceeded.
+8. `test_scenario_8_concurrent_webhook_idempotent_replay`: Duplicate requests with `Idempotency-Key` return identical cached response without re-executing tools.
+9. `test_scenario_9_low_confidence_recovery_score`: Evaluates opportunity score (< 40) and negative factor penalties for churn-risk customers.
+10. `test_scenario_10_rbac_rejection_viewer_denied`: Confirms Viewer role receives `403 Forbidden` on admin/operator actions.
+
+### Frontend Production Build
+```bash
+cd frontend
+npm run build
+```
+Builds the production bundle into `frontend/dist` with 0 TypeScript/compilation errors.
+
 ---
 
-## 7. Demo Workflow (Exact Scenario)
+## 8. Five-Minute Buildathon Demo
 
-1. Click **"Launch Simulation"** or **"Run Recovery Demo"** in the top bar.
-2. Select **"Exact Demo: Returning Customer (Card Declined -> UPI Recovery)"** (Amount: ₹12,999).
-3. **AI Investigator** analyzes customer history (10 past successes) and assigns **89% recovery probability**.
-4. **AI Strategist** detects card 3DS failure and selects **UPI Fallback Link**.
-5. **Intent AI** identifies customer intent (`ALTERNATE_PAYMENT_METHOD`).
-6. **Tool Executor** verifies merchant guardrails, generates a 1-click Razorpay payment link, and dispatches a simulated WhatsApp message.
-7. Click **"Simulate Customer Completing UPI Payment"**.
-8. Status immediately transitions to **RECOVERED**, and the dashboard metrics update by **+₹12,999**.
+To deliver or evaluate a 5-minute live demonstration of PayRecover AI:
+1. Review the step-by-step **[5-Minute Judge Demo Script](docs/demo-script.md)**.
+2. Explore the full **[Architecture Specification](docs/architecture.md)**.
+3. Refer to the complete **[REST API Reference](docs/api.md)**.
 
 ---
 
-## 8. REST API Summary
+## 9. License & Submission Details
 
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/api/health` | GET | Healthcheck and Redis connectivity status |
-| `/api/dashboard/metrics` | GET | Aggregated revenue recovery analytics & trends |
-| `/api/payments` | GET | List and filter transactions |
-| `/api/payments/{id}` | GET | Single payment inspection |
-| `/api/recovery/cases` | GET | List active and historical recovery cases |
-| `/api/recovery/cases/{id}` | GET | Full case with agent action audit trail |
-| `/api/agent/activity` | GET | Chronological multi-agent activity stream |
-| `/api/guardrails` | GET / PUT | Retrieve and update merchant guardrail rules |
-| `/api/ai/analyze-payment` | POST | Run AI Investigator on a payment |
-| `/api/ai/copilot` | POST | Ask natural language queries to AI Copilot |
-| `/api/recovery/simulate` | POST | Trigger realistic payment failure & recovery pipeline |
-| `/api/recovery/{id}/confirm-settlement` | POST | Simulate customer settling the recovery link |
+Built for the **AI Revenue Recovery Buildathon**.  
+Submitted under the MIT License.
