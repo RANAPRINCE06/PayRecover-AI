@@ -21,7 +21,10 @@ from app.models.entities import (
     ActionType,
     ActionStatus,
     InteractionChannel,
-    InteractionDirection
+    InteractionDirection,
+    User,
+    UserRole,
+    IdempotencyRecord
 )
 
 

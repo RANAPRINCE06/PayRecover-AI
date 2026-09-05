@@ -29,7 +29,7 @@ export const SettingsPage: React.FC = () => {
     gemini: { configured: boolean; model: string; mode: string };
   } | null>(null);
 
-  const webhookUrl = 'http://localhost:8000/api/recovery/webhook';
+  const webhookUrl = 'http://localhost:8001/api/recovery/webhook';
 
   const handleCopy = () => {
     navigator.clipboard.writeText(webhookUrl);

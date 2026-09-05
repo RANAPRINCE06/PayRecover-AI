@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 
 from app.core.config import settings
 from app.db.session import engine, Base
+import app.models.entities  # Ensure all SQLAlchemy models are registered
 from app.db.seed_data import seed_database
 from app.core.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
 from app.api.routes import router as api_router
@@ -53,7 +54,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=settings.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -97,4 +98,4 @@ def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=settings.PORT, reload=True)

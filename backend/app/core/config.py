@@ -1,6 +1,7 @@
 import os
 import logging
-from typing import List
+from typing import List, Union, Any
+from pydantic import Field, AliasChoices, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 logger = logging.getLogger("payrecover.config")
@@ -10,10 +11,13 @@ class Settings(BaseSettings):
     APP_NAME: str = "PayRecover AI"
     ENVIRONMENT: str = "development"
     DEBUG: bool = True
-    PORT: int = 8000
+    PORT: int = 8001
 
     # JWT Secret — also accepts JWT_SECRET alias from .env
-    SECRET_KEY: str = "payrecover-secret-key-change-in-production"
+    SECRET_KEY: str = Field(
+        "payrecover-secret-key-change-in-production",
+        validation_alias=AliasChoices("SECRET_KEY", "JWT_SECRET")
+    )
 
     # Database
     DATABASE_URL: str = "sqlite:///./payrecover.db"
@@ -32,15 +36,36 @@ class Settings(BaseSettings):
     GEMINI_MODEL: str = "gemini-1.5-flash"
 
     # CORS
-    CORS_ORIGINS: List[str] = [
+    CORS_ORIGINS: Union[List[str], str] = [
         "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
     ]
 
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Any) -> List[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                import json
+                try:
+                    return json.loads(v)
+                except Exception:
+                    pass
+            return [i.strip() for i in v.split(",") if i.strip()]
+        elif isinstance(v, (list, tuple)):
+            return list(v)
+        return []
+
     model_config = SettingsConfigDict(
-        env_file=".env",
+        # Resolve .env from the project root regardless of working directory
+        env_file=[
+            ".env",                            # CWD (works when run from project root)
+            "../.env",                         # CWD/backend → project root
+            "../../.env",                      # CWD/backend/app → project root
+        ],
         env_file_encoding="utf-8",
         extra="ignore"
     )
