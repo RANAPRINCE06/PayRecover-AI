@@ -193,10 +193,19 @@ export interface DashboardMetrics {
 
 export interface CopilotResponse {
   reply: string;
+  answer?: string;
   insights: string[];
-  recommended_actions: Array<{ label: string; action: string }>;
+  recommended_actions: Array<{
+    label: string;
+    action: string;
+    case_id?: string;
+  }>;
+  confidence?: number;
+  confidence_level?: 'HIGH' | 'MEDIUM' | 'LOW';
+  data_sources?: string[];
   data_snapshot?: Record<string, any>;
 }
+
 
 export type ToolType =
   | 'RETRY_PAYMENT'
@@ -623,3 +632,117 @@ export interface RealtimeEvent {
   data?: Record<string, any>;
   correlation_id?: string | null;
 }
+
+// -------------------------------------------------------------
+// Phase 9 - AI Copilot, Opportunity Scoring, Risk, Trace & Metrics
+// -------------------------------------------------------------
+
+
+export interface OpportunityScore {
+  case_id: string;
+  payment_id: string;
+  amount: number;
+  currency: string;
+  customer_name: string;
+  customer_tier: string;
+  failure_reason?: string | null;
+  score: number;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  positive_factors: string[];
+  negative_factors: string[];
+  recommended_strategy: string;
+  estimated_recovery_probability: number;
+  is_heuristic: boolean;
+}
+
+export interface RevenueAtRisk {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  case_count: number;
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+  trend: Array<{
+    date: string;
+    amount_at_risk: number;
+  }>;
+}
+
+export interface DecisionExplanation {
+  case_id: string;
+  payment_id: string;
+  decision: string;
+  reason: string;
+  evidence: string[];
+  customer_context: Record<string, any>;
+  risk_factors: string[];
+  guardrail_result: Record<string, any>;
+  confidence: number;
+  confidence_level: 'HIGH' | 'MEDIUM' | 'LOW';
+  recommended_next_step: string;
+}
+
+export interface AgentTraceStep {
+  step_index: number;
+  stage_name: string;
+  agent: string;
+  status: 'PENDING' | 'RUNNING' | 'SUCCESS' | 'SKIPPED' | 'BLOCKED' | 'FAILED';
+  started_at?: string;
+  completed_at?: string;
+  duration_ms?: number;
+  summary: string;
+  output?: Record<string, any>;
+  tool_used?: string | null;
+  guardrail_applied: boolean;
+  error_message?: string | null;
+}
+
+export interface AgentTrace {
+  run_id: string;
+  case_id: string;
+  payment_id: string;
+  request_id?: string;
+  correlation_id?: string;
+  timeline: string[];
+  steps: AgentTraceStep[];
+  total_steps: number;
+  completed_steps: number;
+  final_status: string;
+  started_at?: string;
+  completed_at?: string;
+  total_duration_ms?: number;
+}
+
+export interface AIRecommendation {
+  case_id: string;
+  payment_id: string;
+  amount: number;
+  currency: string;
+  customer_name: string;
+  customer_id: string;
+  failure_reason: string;
+  intent?: string;
+  opportunity_score: number;
+  priority: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW';
+  recommended_strategy: string;
+  confidence: number;
+  confidence_level: 'HIGH' | 'MEDIUM' | 'LOW';
+  expected_recovery: number;
+  action_type: string;
+  requires_human_approval: boolean;
+}
+
+export interface AIOperationsMetrics {
+  ai_decisions_count: number;
+  ai_success_rate: number;
+  average_ai_latency_ms: number;
+  human_escalation_rate: number;
+  tool_success_rate: number;
+  active_agents: number;
+  period: string;
+}
+

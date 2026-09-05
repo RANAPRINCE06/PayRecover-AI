@@ -3,7 +3,7 @@ import {
   IndianRupee, AlertTriangle, Sparkles, CheckCircle2,
   Bot, Zap, Loader2, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown, Target, Shield,
-  Activity, Clock, Users, BarChart3, RefreshCw
+  Activity, Clock, Users, BarChart3, RefreshCw, ArrowRight
 } from 'lucide-react';
 import {
   ResponsiveContainer, AreaChart, Area, XAxis, YAxis,
@@ -12,7 +12,8 @@ import {
 import {
   DashboardMetrics, Payment, RecoveryCase,
   AutonomousRecoveryResult, AnalyticsOverview,
-  RecoveryTrend, RecoveryOpportunity, SystemStatus
+  RecoveryTrend, RecoveryOpportunity, SystemStatus,
+  AIRecommendation
 } from '../types';
 import { MetricCard } from '../components/MetricCard';
 import { StatusBadge } from '../components/StatusBadge';
@@ -22,6 +23,10 @@ import { api } from '../services/api';
 import { useToast } from '../components/Toast';
 import { LiveActivityFeed } from '../components/LiveActivityFeed';
 import { useAuth } from '../context/AuthContext';
+import { AIOperationsMetrics } from '../components/AIOperationsMetrics';
+import { AIRecommendationCard } from '../components/AIRecommendationCard';
+import { DecisionExplanationModal } from '../components/DecisionExplanationModal';
+import { AgentTraceViewer } from '../components/AgentTraceViewer';
 
 interface CommandCenterProps {
   metrics: DashboardMetrics | null;
@@ -215,6 +220,7 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   const [trend, setTrend] = useState<RecoveryTrend | null>(null);
   const [trendPeriod, setTrendPeriod] = useState<TrendPeriod>('7d');
   const [opportunities, setOpportunities] = useState<RecoveryOpportunity[]>([]);
+  const [recommendations, setRecommendations] = useState<AIRecommendation[]>([]);
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(true);
   const [trendLoading, setTrendLoading] = useState(true);
@@ -223,16 +229,23 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
   const [autoError, setAutoError] = useState<string | null>(null);
   const [panelOpen, setPanelOpen] = useState(false);
 
+  // Phase 9 Modals & Execution State
+  const [explanationCaseId, setExplanationCaseId] = useState<string | null>(null);
+  const [traceCaseId, setTraceCaseId] = useState<string | null>(null);
+  const [executingRecId, setExecutingRecId] = useState<string | null>(null);
+
   const loadAnalytics = useCallback(async () => {
     try {
-      const [ov, opps, sys] = await Promise.all([
+      const [ov, opps, sys, recs] = await Promise.all([
         api.getAnalyticsOverview(),
         api.getRecoveryOpportunities(5),
-        api.getSystemStatus()
+        api.getSystemStatus(),
+        api.getAIRecommendations(4).catch(() => [])
       ]);
       setOverview(ov);
       setOpportunities(opps.opportunities);
       setSystemStatus(sys);
+      setRecommendations(recs);
     } catch {
       // non-fatal
     } finally {
@@ -313,6 +326,32 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
     } catch (err: any) { showError(err.message); }
   };
 
+  const handleExecuteRecommendation = async (rec: AIRecommendation) => {
+    if (!canExecuteRecovery || isReadOnly) {
+      showError('Unauthorized: Operator or Admin role required to execute recovery actions.');
+      return;
+    }
+    setExecutingRecId(rec.case_id);
+    try {
+      if (rec.requires_human_approval) {
+        await api.approveCase(rec.case_id);
+        success(`Human review approval recorded for Case #${rec.case_id.slice(0, 8)}`);
+      } else {
+        await api.executeRecoveryAction(rec.case_id, {
+          tool_type: rec.action_type === 'RETRY_PAYMENT' ? 'RETRY_PAYMENT' : 'CREATE_PAYMENT_LINK',
+          parameters: { strategy: rec.recommended_strategy }
+        });
+        success(`Executed ${rec.recommended_strategy.replace(/_/g, ' ')} for Case #${rec.case_id.slice(0, 8)}`);
+      }
+      onRefresh?.();
+      loadAnalytics();
+    } catch (err: any) {
+      showError(err.message || 'Execution error');
+    } finally {
+      setExecutingRecId(null);
+    }
+  };
+
   const ov = overview;
   const isLoading = overviewLoading;
 
@@ -363,6 +402,9 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Phase 9: AI Operations Telemetry */}
+      <AIOperationsMetrics />
 
       {/* Autonomous Recovery Panel */}
       {panelOpen && (
@@ -481,6 +523,50 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
         </div>
       </div>
 
+      {/* Phase 9: AI Recommended Actions */}
+      <div className="p-5 rounded-2xl bg-dark-850 border border-dark-700 shadow-xl space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white">AI Recommended Actions</h3>
+              <p className="text-xs text-slate-400">
+                Prioritized by expected revenue recovery, deterministic opportunity score, and operator safety.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => onNavigate?.('copilot')}
+            className="text-xs text-cyan-400 hover:text-cyan-300 font-semibold transition-colors flex items-center gap-1"
+          >
+            <span>Ask AI Copilot</span>
+            <ArrowRight className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        {recommendations.length === 0 ? (
+          <div className="p-8 text-center bg-dark-900/50 rounded-xl border border-dark-800 text-xs text-slate-400">
+            No active recommendations at this moment. All cases are running autonomously or settled.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {recommendations.map((rec, idx) => (
+              <AIRecommendationCard
+                key={rec.case_id}
+                recommendation={rec}
+                rank={idx + 1}
+                onExecute={handleExecuteRecommendation}
+                onViewExplanation={(cId) => setExplanationCaseId(cId)}
+                onViewTrace={(cId) => setTraceCaseId(cId)}
+                isExecuting={executingRecId === rec.case_id}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* Real-time Live Operations Feed */}
       <LiveActivityFeed maxItems={15} onSelectCaseId={(cId) => onNavigate?.('recovery-cases')} />
 
@@ -562,6 +648,21 @@ export const CommandCenter: React.FC<CommandCenterProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Phase 9: Modals */}
+      {explanationCaseId && (
+        <DecisionExplanationModal
+          caseId={explanationCaseId}
+          onClose={() => setExplanationCaseId(null)}
+        />
+      )}
+
+      {traceCaseId && (
+        <AgentTraceViewer
+          caseId={traceCaseId}
+          onClose={() => setTraceCaseId(null)}
+        />
+      )}
     </div>
   );
 };

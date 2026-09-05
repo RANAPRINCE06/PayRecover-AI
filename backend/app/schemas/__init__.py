@@ -23,7 +23,14 @@ from app.schemas.contracts import (
     ToolExecutionStatus,
     ToolProposal,
     ToolExecutionRequest,
-    ToolExecutionResult
+    ToolExecutionResult,
+    OpportunityScoreResponse,
+    RevenueAtRiskResponse,
+    DecisionExplanationResponse,
+    AgentTraceStep,
+    AgentTraceResponse,
+    AIRecommendationItem,
+    AIOperationsMetricsResponse
 )
 
 __all__ = [
@@ -51,5 +58,12 @@ __all__ = [
     "ToolExecutionStatus",
     "ToolProposal",
     "ToolExecutionRequest",
-    "ToolExecutionResult"
+    "ToolExecutionResult",
+    "OpportunityScoreResponse",
+    "RevenueAtRiskResponse",
+    "DecisionExplanationResponse",
+    "AgentTraceStep",
+    "AgentTraceResponse",
+    "AIRecommendationItem",
+    "AIOperationsMetricsResponse"
 ]

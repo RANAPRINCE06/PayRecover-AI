@@ -1,195 +1,264 @@
-import React, { useState } from 'react';
-import { MessageSquareCode, Send, Bot, User, Sparkles, ArrowRight, CornerDownLeft, Loader2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import {
+  MessageSquareCode,
+  Sparkles,
+  TrendingUp,
+  Target,
+  AlertTriangle,
+  HelpCircle,
+  Zap,
+  ArrowRight,
+  ShieldCheck,
+  RefreshCw
+} from 'lucide-react';
+import { AICopilotChat } from '../components/AICopilotChat';
+import { RevenueRiskCard } from '../components/RevenueRiskCard';
+import { RecoveryOpportunityCard } from '../components/RecoveryOpportunityCard';
+import { DecisionExplanationModal } from '../components/DecisionExplanationModal';
+import { AgentTraceViewer } from '../components/AgentTraceViewer';
 import { api } from '../services/api';
-import { CopilotResponse } from '../types';
+import { RevenueAtRisk, OpportunityScore } from '../types';
+import { useToast } from '../components/Toast';
 
 export const AICopilotPage: React.FC = () => {
-  const [messages, setMessages] = useState<Array<{ sender: 'user' | 'bot'; text: string; data?: CopilotResponse }>>([
-    {
-      sender: 'bot',
-      text: 'Hello! I am your PayRecover AI Copilot. I analyze real-time Razorpay telemetry, failure patterns, and customer intent to optimize your revenue recovery. Ask me anything about your payments or strategy.',
-      data: {
-        reply: '',
-        insights: [
-          '84.6% of card failures can be autonomously recovered via WhatsApp UPI deep-links',
-          'Current recoverable revenue pipeline stands at ₹1,48,500'
-        ],
-        recommended_actions: [
-          { label: 'Why did recovery fall yesterday?', action: 'ASK_YESTERDAY' },
-          { label: 'How much revenue is currently at risk?', action: 'ASK_RISK' },
-          { label: 'Which payment method is causing the most failures?', action: 'ASK_METHOD' },
-          { label: 'Show high-value payments requiring approval', action: 'ASK_HIGH_VAL' }
-        ]
-      }
-    }
-  ]);
+  const { success, error, info } = useToast();
+  const [selectedPrompt, setSelectedPrompt] = useState<string | null>(null);
+  const [riskData, setRiskData] = useState<RevenueAtRisk | null>(null);
+  const [opportunities, setOpportunities] = useState<OpportunityScore[]>([]);
+  const [loadingContext, setLoadingContext] = useState(true);
 
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  // Modals
+  const [explanationCaseId, setExplanationCaseId] = useState<string | null>(null);
+  const [traceCaseId, setTraceCaseId] = useState<string | null>(null);
 
-  const samplePrompts = [
-    "How much revenue is currently at risk?",
-    "Why did recovery fall yesterday?",
-    "Which payment method is causing the most failures?",
-    "Recommend a recovery strategy for Card 3DS drop-offs"
-  ];
-
-  const handleSend = async (textToSend?: string) => {
-    const query = textToSend || input;
-    if (!query.trim() || loading) return;
-
-    setInput('');
-    setMessages((prev) => [...prev, { sender: 'user', text: query }]);
-    setLoading(true);
-
+  const fetchContextData = async () => {
+    setLoadingContext(true);
     try {
-      const res = await api.askCopilot(query);
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: 'bot',
-          text: res.reply,
-          data: res
-        }
+      const [riskRes, oppsRes] = await Promise.all([
+        api.getRevenueAtRisk().catch(() => null),
+        api.getRecoveryOpportunities(5).catch(() => ({ opportunities: [] }))
       ]);
+
+      if (riskRes) setRiskData(riskRes);
+
+      if (oppsRes && oppsRes.opportunities) {
+        // Map to OpportunityScore structure
+        const mapped: OpportunityScore[] = oppsRes.opportunities.map((o: any) => ({
+          case_id: o.case_id,
+          payment_id: o.payment_id,
+          amount: o.amount,
+          currency: o.currency || 'INR',
+          customer_name: o.customer_name,
+          customer_tier: o.priority || 'STANDARD',
+          failure_reason: o.failure_reason,
+          score: o.recovery_score || 80,
+          priority: o.priority || (o.recovery_score >= 80 ? 'CRITICAL' : 'HIGH'),
+          positive_factors: o.positive_factors || ['High customer engagement', 'Transient gateway drop-off'],
+          negative_factors: o.negative_factors || ['Standard recovery window'],
+          recommended_strategy: o.current_strategy || 'ALTERNATE_PAYMENT_METHOD',
+          estimated_recovery_probability: o.recovery_probability || 0.8,
+          is_heuristic: true
+        }));
+        setOpportunities(mapped);
+      }
     } catch (err: any) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          sender: 'bot',
-          text: `Could not retrieve response from AI engine: ${err.message || err}`
-        }
-      ]);
+      console.error('Failed to load copilot side context:', err);
     } finally {
-      setLoading(false);
+      setLoadingContext(false);
     }
   };
 
+  useEffect(() => {
+    fetchContextData();
+  }, []);
+
+  const handleApplyStrategy = async (caseId: string, strategy: string) => {
+    info(`Triggering ${strategy.replace(/_/g, ' ')} on Case #${caseId.slice(0, 8)}...`);
+    try {
+      await api.executeRecoveryAction(caseId, {
+        tool_type: 'CREATE_PAYMENT_LINK',
+        parameters: { strategy }
+      });
+      success(`Recovery strategy dispatched successfully for Case #${caseId.slice(0, 8)}!`);
+      fetchContextData();
+    } catch (err: any) {
+      error(`Action failed: ${err.message || err}`);
+    }
+  };
+
+  const promptCategories = [
+    {
+      category: 'Revenue & Performance',
+      prompts: [
+        'What is my biggest recovery opportunity?',
+        'How much revenue is currently at risk?',
+        'How much revenue did AI recover this week?'
+      ]
+    },
+    {
+      category: 'Diagnostics & Telemetry',
+      prompts: [
+        'Which payment method is failing the most?',
+        'Why did recovery revenue drop today?',
+        'Why are customers abandoning checkout?'
+      ]
+    },
+    {
+      category: 'Strategic Next Steps',
+      prompts: [
+        'Which recovery strategy performs best?',
+        'What should I fix first?',
+        'Show high-value cases requiring approval'
+      ]
+    }
+  ];
+
   return (
-    <div className="h-[calc(100vh-8.5rem)] flex flex-col rounded-2xl bg-dark-850 border border-dark-700 overflow-hidden animate-fadeIn">
-      {/* Copilot Header */}
-      <div className="p-4 bg-dark-800 border-b border-dark-700 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-indigo to-brand-cyan flex items-center justify-center text-white">
-            <Bot className="w-5 h-5" />
+    <div className="space-y-6 animate-fadeIn pb-12">
+      {/* Page Header */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400 bg-cyan-500/10 px-2.5 py-0.5 rounded-full border border-cyan-500/20 flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5" /> AI Revenue Copilot
+            </span>
+            <span className="text-xs text-slate-400">• Grounded Telemetry & Explainability</span>
           </div>
-          <div>
-            <h3 className="text-sm font-bold text-white flex items-center gap-2">
-              Merchant AI Recovery Copilot
-              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">
-                Gemini Model Active
-              </span>
-            </h3>
-            <p className="text-[11px] text-slate-400">Context grounded on live merchant database and telemetry</p>
+          <h1 className="text-2xl md:text-3xl font-bold text-white tracking-tight">
+            Revenue Intelligence Copilot
+          </h1>
+          <p className="text-sm text-slate-400 mt-1">
+            Conversational executive insights, revenue-at-risk prioritization, and autonomous multi-agent explainability.
+          </p>
+        </div>
+
+        <button
+          onClick={fetchContextData}
+          disabled={loadingContext}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-850 border border-slate-800 text-slate-300 hover:text-white text-xs font-semibold transition-all shadow-md self-start md:self-auto"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loadingContext ? 'animate-spin text-cyan-400' : ''}`} />
+          <span>Refresh Context</span>
+        </button>
+      </div>
+
+      {/* 3-Column Layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* Left Column: Prompt Library & Categories (3 cols) */}
+        <div className="lg:col-span-3 space-y-4">
+          <div className="bg-slate-900/70 border border-slate-800 rounded-2xl p-4 shadow-lg">
+            <div className="flex items-center gap-2 mb-3">
+              <MessageSquareCode className="w-4 h-4 text-cyan-400" />
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+                Suggested Prompts
+              </h3>
+            </div>
+            <p className="text-xs text-slate-400 mb-4">
+              Click any question to query real-time database analytics:
+            </p>
+
+            <div className="space-y-4">
+              {promptCategories.map((group, gIdx) => (
+                <div key={gIdx} className="space-y-1.5">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 block px-1">
+                    {group.category}
+                  </span>
+                  {group.prompts.map((p, pIdx) => (
+                    <button
+                      key={pIdx}
+                      onClick={() => setSelectedPrompt(p)}
+                      className="w-full text-left p-2.5 rounded-xl bg-slate-950/40 hover:bg-cyan-500/10 border border-slate-800/80 hover:border-cyan-500/30 text-xs text-slate-300 hover:text-cyan-300 transition-all flex items-center justify-between group"
+                    >
+                      <span className="line-clamp-2">{p}</span>
+                      <ArrowRight className="w-3 h-3 text-slate-500 group-hover:text-cyan-400 shrink-0 ml-1.5 transition-transform group-hover:translate-x-0.5" />
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Quick Guidance Box */}
+          <div className="p-4 bg-slate-900/40 border border-slate-800/60 rounded-2xl text-xs space-y-2 text-slate-400">
+            <div className="flex items-center gap-1.5 font-semibold text-slate-300">
+              <ShieldCheck className="w-4 h-4 text-emerald-400" />
+              <span>Grounded Guardrail Engine</span>
+            </div>
+            <p className="leading-relaxed">
+              Every answer is verified against your PostgreSQL transaction ledger. The Copilot cannot execute actions without merchant approval when guardrail thresholds are crossed.
+            </p>
+          </div>
+        </div>
+
+        {/* Center Column: Live Chat Interface (5 cols) */}
+        <div className="lg:col-span-5 h-[720px]">
+          <AICopilotChat
+            externalQuery={selectedPrompt}
+            onExecuteAction={(action, caseId) => {
+              if (caseId) {
+                handleApplyStrategy(caseId, action);
+              }
+            }}
+          />
+        </div>
+
+        {/* Right Column: Live Context & Opportunities (4 cols) */}
+        <div className="lg:col-span-4 space-y-6">
+          {/* Revenue at Risk Summary */}
+          <RevenueRiskCard data={riskData} loading={loadingContext} />
+
+          {/* Top Opportunities */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2">
+                <Target className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-200">
+                  Top Recovery Opportunities
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-slate-400">Ranked by Expected ROI</span>
+            </div>
+
+            {loadingContext ? (
+              <div className="space-y-3">
+                {[1, 2].map((i) => (
+                  <div key={i} className="h-44 bg-slate-900/60 rounded-2xl border border-slate-800 animate-pulse" />
+                ))}
+              </div>
+            ) : opportunities.length === 0 ? (
+              <div className="p-6 bg-slate-900/40 border border-slate-800/60 rounded-2xl text-center text-xs text-slate-400">
+                No active recovery opportunities found. Pipeline is fully resolved.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {opportunities.map((opp) => (
+                  <RecoveryOpportunityCard
+                    key={opp.case_id}
+                    opportunity={opp}
+                    onSelectAction={(caseId, strat) => handleApplyStrategy(caseId, strat)}
+                    onViewExplanation={(caseId) => setExplanationCaseId(caseId)}
+                  />
+                ))}
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Messages Thread */}
-      <div className="flex-1 p-6 overflow-y-auto space-y-5">
-        {messages.map((m, idx) => (
-          <div
-            key={idx}
-            className={`flex gap-3 max-w-2xl ${m.sender === 'user' ? 'ml-auto flex-row-reverse' : 'mr-auto'}`}
-          >
-            <div
-              className={`w-8 h-8 rounded-lg shrink-0 flex items-center justify-center text-xs font-bold ${
-                m.sender === 'user'
-                  ? 'bg-brand-cyan text-dark-900'
-                  : 'bg-dark-800 border border-dark-700 text-brand-cyan'
-              }`}
-            >
-              {m.sender === 'user' ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-            </div>
-
-            <div className="space-y-3">
-              <div
-                className={`p-4 rounded-2xl text-xs leading-relaxed ${
-                  m.sender === 'user'
-                    ? 'bg-gradient-to-r from-brand-cyan to-brand-blue text-dark-900 font-semibold'
-                    : 'bg-dark-800 border border-dark-700 text-slate-200'
-                }`}
-              >
-                {m.text}
-              </div>
-
-              {/* Insights and Action Recommendations */}
-              {m.data?.insights && m.data.insights.length > 0 && (
-                <div className="p-3.5 rounded-xl bg-dark-900/90 border border-brand-cyan/20 space-y-2">
-                  <div className="text-[11px] font-bold text-brand-cyan flex items-center gap-1.5 uppercase tracking-wide">
-                    <Sparkles className="w-3.5 h-3.5" /> Key Telemetry Insights
-                  </div>
-                  <ul className="text-xs space-y-1.5 text-slate-300">
-                    {m.data.insights.map((ins, i) => (
-                      <li key={i} className="flex items-start gap-2">
-                        <span className="text-brand-cyan font-bold">•</span>
-                        <span>{ins}</span>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {/* Quick Prompt Suggestions */}
-              {m.data?.recommended_actions && (
-                <div className="flex flex-wrap gap-2 pt-1">
-                  {m.data.recommended_actions.map((act, i) => (
-                    <button
-                      key={i}
-                      onClick={() => handleSend(act.label)}
-                      className="px-3 py-1.5 rounded-lg bg-dark-800 hover:bg-dark-750 border border-dark-700 text-[11px] text-brand-cyan hover:border-brand-cyan/40 transition flex items-center gap-1.5"
-                    >
-                      <span>{act.label}</span>
-                      <ArrowRight className="w-3 h-3" />
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        ))}
-
-        {loading && (
-          <div className="flex items-center gap-2 text-xs text-brand-cyan font-mono p-3 bg-dark-800 rounded-xl w-fit">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            Analyzing payment telemetry & executing inference...
-          </div>
-        )}
-      </div>
-
-      {/* Suggested Quick Prompts */}
-      <div className="px-6 py-2 bg-dark-900/50 border-t border-dark-750 flex items-center gap-2 overflow-x-auto">
-        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider shrink-0">Prompts:</span>
-        {samplePrompts.map((p, idx) => (
-          <button
-            key={idx}
-            onClick={() => handleSend(p)}
-            className="text-[11px] px-2.5 py-1 rounded-full bg-dark-800 hover:bg-dark-750 border border-dark-700 text-slate-400 hover:text-slate-200 transition shrink-0"
-          >
-            {p}
-          </button>
-        ))}
-      </div>
-
-      {/* Input box */}
-      <div className="p-4 bg-dark-800 border-t border-dark-700 flex items-center gap-3">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleSend()}
-          placeholder="Ask AI Copilot about payment failures, recovery strategies, or customer intent..."
-          className="flex-1 px-4 py-2.5 bg-dark-900 border border-dark-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-cyan"
+      {/* Modals */}
+      {explanationCaseId && (
+        <DecisionExplanationModal
+          caseId={explanationCaseId}
+          onClose={() => setExplanationCaseId(null)}
         />
-        <button
-          onClick={() => handleSend()}
-          disabled={loading || !input.trim()}
-          className="px-4 py-2.5 bg-gradient-to-r from-brand-cyan to-brand-blue text-dark-900 font-bold text-xs rounded-xl shadow-glow-cyan hover:opacity-90 transition disabled:opacity-50 flex items-center gap-1.5"
-        >
-          <Send className="w-3.5 h-3.5" />
-          <span>Send</span>
-        </button>
-      </div>
+      )}
+
+      {traceCaseId && (
+        <AgentTraceViewer
+          caseId={traceCaseId}
+          onClose={() => setTraceCaseId(null)}
+        />
+      )}
     </div>
   );
 };

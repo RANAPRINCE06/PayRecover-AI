@@ -47,10 +47,13 @@ from app.schemas.contracts import (
     RecoveryStrategyResult,
     ToolType,
     ToolExecutionStatus,
-    ToolProposal,
     ToolExecutionRequest,
     ToolExecutionResult,
-    AutonomousRecoveryResult
+    AutonomousRecoveryResult,
+    OpportunityScoreResponse,
+    DecisionExplanationResponse,
+    AgentTraceResponse,
+    AIRecommendationItem
 )
 from app.agents.investigator import investigator_agent
 from app.agents.intent import intent_agent
@@ -59,6 +62,9 @@ from app.agents.orchestrator import orchestrator
 from app.tools.tool_executor import ToolExecutor
 from app.services.guardrail_service import guardrail_service
 from app.services.redis_service import redis_service
+from app.services.copilot_service import copilot_service
+from app.services.opportunity_service import opportunity_scoring_engine
+from app.services.trace_service import trace_service
 from app.integrations.mock_payment_engine import mock_payment_engine
 
 router = APIRouter()
@@ -304,58 +310,74 @@ def generate_recovery_strategy(payload: RecoveryStrategyRequest, db: Session = D
 # 10. AI Copilot
 @router.post("/ai/copilot", response_model=CopilotResponse, tags=["AI Agents"])
 def ask_copilot(payload: CopilotRequest, db: Session = Depends(get_db)):
-    prompt_lower = payload.prompt.lower()
+    """
+    Phase 9: AI Recovery Copilot.
+    Provides natural-language recovery intelligence strictly grounded in real database analytics.
+    """
+    query = payload.message or payload.prompt or ""
+    if not query.strip():
+        raise HTTPException(status_code=400, detail="Query message or prompt is required")
+    return copilot_service.ask(query, db)
 
-    if "risk" in prompt_lower or "how much" in prompt_lower:
-        failed_sum = db.query(func.sum(Payment.amount)).filter(Payment.status == PaymentStatus.FAILED.value).scalar() or 0.0
-        return CopilotResponse(
-            reply=f"Currently, ₹{failed_sum:,.2f} in revenue is at risk across recent failed transactions. Our autonomous agents predict that ₹{failed_sum*0.82:,.2f} (82%) is recoverable without manual merchant intervention.",
-            insights=[
-                "Top failure driver: 3DS Issuing Bank Timeout on Cards (42% of failures)",
-                "Fastest recovering channel: WhatsApp 1-Click UPI (89.4% recovery conversion)",
-                "Average recovery time: 14 minutes from failure detection"
-            ],
-            recommended_actions=[
-                {"label": "Trigger Instant WhatsApp UPI Fallback for 6 Pending Cases", "action": "AUTO_DISPATCH_UPI"},
-                {"label": "Review 2 High-Value Cases in Human Queue", "action": "OPEN_HUMAN_QUEUE"}
-            ]
-        )
-    elif "yesterday" in prompt_lower or "why" in prompt_lower or "fall" in prompt_lower:
-        return CopilotResponse(
-            reply="Yesterday's dip in recovery rate (from 84% to 71%) was driven by a temporary HDFC Bank UPI PSP gateway downtime between 14:00 - 15:30 IST. When UPI PSP returned 504 errors, our fallback rules queued retries.",
-            insights=[
-                "HDFC UPI PSP latency spiked to 14,200ms during the incident window.",
-                "PayRecover AI deferred 18 automated retries to protect customer sentiment.",
-                "All 18 queued payments recovered successfully once normal banking resumed."
-            ],
-            recommended_actions=[
-                {"label": "View Gateway Telemetry Graph", "action": "VIEW_TELEMETRY"},
-                {"label": "Adjust Auto-Retry Deferral Window", "action": "OPEN_GUARDRAILS"}
-            ]
-        )
-    elif "method" in prompt_lower:
-        return CopilotResponse(
-            reply="Credit/Debit Cards currently account for the highest failure volume (48% of failures), primarily due to 2-Factor Authentication / 3DS drop-offs. Conversely, UPI has an 89.2% autonomous recovery success rate when prompted with instant deep-links.",
-            insights=[
-                "Card transactions above ₹10,000 show 38% higher 3DS abandonment than UPI.",
-                "Recommending UPI fallback on card failure increases overall checkout conversion by 22%."
-            ],
-            recommended_actions=[
-                {"label": "Enable Auto UPI Switch Strategy", "action": "ACTIVATE_STRATEGY"}
-            ]
-        )
-    else:
-        return CopilotResponse(
-            reply=f"I have analyzed your payment telemetry and active recovery cases. The system is operating normally with 84.6% overall recovery efficiency under merchant-configured guardrails.",
-            insights=[
-                "Active automated cases: 14",
-                "Human approval queue: 2 high-value cases (₹75,000 and ₹55,000)",
-                "Zero guardrail violations detected in past 24 hours"
-            ],
-            recommended_actions=[
-                {"label": "Run Recovery Simulation", "action": "RUN_SIMULATION"}
-            ]
-        )
+
+# 11. AI Decision Explanation & Opportunity Scoring
+@router.get("/recovery/{case_id}/explanation", response_model=DecisionExplanationResponse, tags=["AI Agents"])
+def get_decision_explanation(case_id: str, db: Session = Depends(get_db)):
+    """
+    Phase 9: Structured explainability for AI recovery decisions.
+    Returns decision, reason, evidence, customer context, risk factors, guardrail result, and confidence.
+    """
+    try:
+        return trace_service.get_decision_explanation(db, case_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Explanation error: {str(e)}")
+
+
+@router.get("/recovery/{case_id}/opportunity", response_model=OpportunityScoreResponse, tags=["AI Agents"])
+def get_case_opportunity_score(case_id: str, db: Session = Depends(get_db)):
+    """
+    Phase 9: Deterministic and explainable recovery opportunity scoring for a case.
+    """
+    case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
+    if not case:
+        raise HTTPException(status_code=404, detail=f"Recovery case '{case_id}' not found")
+    return opportunity_scoring_engine.calculate_score(case)
+
+
+# 12. Agent Traces & Timeline
+@router.get("/recovery/{case_id}/trace", response_model=AgentTraceResponse, tags=["Recovery Engine"])
+def get_case_agent_trace(case_id: str, db: Session = Depends(get_db)):
+    """
+    Phase 9: Step-by-step agent trace timeline for a recovery run.
+    Timeline: INVESTIGATE → INTENT → STRATEGY → GUARDRAIL → EXECUTE → SETTLE.
+    """
+    try:
+        return trace_service.get_case_trace(db, case_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Trace error: {str(e)}")
+
+
+@router.get("/recovery/traces", response_model=List[AgentTraceResponse], tags=["Recovery Engine"])
+def get_recent_agent_traces(limit: int = 10, db: Session = Depends(get_db)):
+    """
+    Phase 9: Lists recent autonomous recovery execution traces.
+    """
+    return trace_service.get_recent_traces(db, limit=limit)
+
+
+# 13. AI Recommended Actions
+@router.get("/recovery/recommendations", response_model=List[AIRecommendationItem], tags=["Recovery Engine"])
+def get_ai_recommendations(limit: int = 6, db: Session = Depends(get_db)):
+    """
+    Phase 9: Ranked AI Recommended Actions for Command Center.
+    Ranked by expected revenue impact and recovery opportunity score.
+    """
+    return trace_service.get_recommendations(db, limit=limit)
+
 
 
 # 9. Recovery Simulation (Exact Demo & Scenarios)

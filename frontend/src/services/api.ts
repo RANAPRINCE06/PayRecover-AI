@@ -22,7 +22,13 @@ import {
   UserCreatePayload,
   UserUpdatePayload,
   SystemHealth,
-  RealtimeEvent
+  RealtimeEvent,
+  OpportunityScore,
+  RevenueAtRisk,
+  DecisionExplanation,
+  AgentTrace,
+  AIRecommendation,
+  AIOperationsMetrics
 } from '../types';
 
 const API_BASE = '/api';
@@ -201,6 +207,13 @@ export const api = {
       body: payload ? JSON.stringify(payload) : undefined
     }),
 
+  executeRecoveryAction: (caseId: string, payload?: any, idempotencyKey?: string) =>
+    request<ToolExecutionResult>(`/recovery/${caseId}/execute`, {
+      method: 'POST',
+      headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : undefined,
+      body: payload ? JSON.stringify(payload) : undefined
+    }),
+
   approveCase: (caseId: string, idempotencyKey?: string) =>
     request<ToolExecutionResult>(`/recovery/${caseId}/approve`, {
       method: 'POST',
@@ -244,5 +257,25 @@ export const api = {
     request<{ strategies: StrategyStat[] }>('/analytics/strategies'),
 
   getRecoveryOpportunities: (limit = 10) =>
-    request<{ opportunities: RecoveryOpportunity[] }>(`/analytics/opportunities?limit=${limit}`)
+    request<{ opportunities: RecoveryOpportunity[] }>(`/analytics/opportunities?limit=${limit}`),
+
+  // ─── Phase 9: Copilot, Explainability & Traces ────────────────
+  getRevenueAtRisk: () => request<RevenueAtRisk>('/analytics/revenue-at-risk'),
+
+  getAIOperationsMetrics: () => request<AIOperationsMetrics>('/analytics/ai-metrics'),
+
+  getDecisionExplanation: (caseId: string) =>
+    request<DecisionExplanation>(`/recovery/${caseId}/explanation`),
+
+  getCaseOpportunity: (caseId: string) =>
+    request<OpportunityScore>(`/recovery/${caseId}/opportunity`),
+
+  getCaseTrace: (caseId: string) =>
+    request<AgentTrace>(`/recovery/${caseId}/trace`),
+
+  getRecentTraces: (limit = 10) =>
+    request<AgentTrace[]>(`/recovery/traces?limit=${limit}`),
+
+  getAIRecommendations: (limit = 6) =>
+    request<AIRecommendation[]>(`/recovery/recommendations?limit=${limit}`)
 };

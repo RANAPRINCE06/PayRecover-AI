@@ -1,7 +1,7 @@
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, model_validator
 
 
 # -------------------------------------------------------------
@@ -402,15 +402,46 @@ class DashboardMetrics(BaseModel):
 
 
 class CopilotRequest(BaseModel):
-    prompt: str
+    prompt: Optional[str] = None
+    message: Optional[str] = None
     context: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def set_prompt_from_message(cls, values):
+        if isinstance(values, dict):
+            msg = values.get("message") or values.get("prompt") or ""
+            values["prompt"] = msg
+            values["message"] = msg
+        return values
 
 
 class CopilotResponse(BaseModel):
-    reply: str
-    insights: List[str] = []
-    recommended_actions: List[Dict[str, Any]] = []
+    reply: str = ""
+    answer: Optional[str] = None
+    insights: List[str] = Field(default_factory=list)
+    recommended_actions: List[Dict[str, Any]] = Field(default_factory=list)
+    confidence: float = Field(default=0.90)
+    confidence_level: str = Field(default="HIGH")
+    data_sources: List[str] = Field(default_factory=list)
     data_snapshot: Optional[Dict[str, Any]] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_answer_reply(cls, values):
+        if isinstance(values, dict):
+            text = values.get("answer") or values.get("reply") or ""
+            values["reply"] = text
+            values["answer"] = text
+            if "confidence" in values and "confidence_level" not in values:
+                c = float(values["confidence"])
+                if c >= 0.80:
+                    values["confidence_level"] = "HIGH"
+                elif c >= 0.60:
+                    values["confidence_level"] = "MEDIUM"
+                else:
+                    values["confidence_level"] = "LOW"
+        return values
 
 
 class SimulateRecoveryRequest(BaseModel):
@@ -478,4 +509,128 @@ class ErrorDetail(BaseModel):
 
 class StandardErrorResponse(BaseModel):
     error: ErrorDetail
+
+
+# -------------------------------------------------------------
+# PHASE 9 - AI Copilot, Explainability, Opportunity Scoring & Trace Schemas
+# -------------------------------------------------------------
+
+class OpportunityScoreResponse(BaseModel):
+    case_id: str
+    payment_id: str
+    amount: float
+    currency: str = "INR"
+    customer_name: str = "Unknown"
+    customer_tier: str = "STANDARD"
+    failure_reason: Optional[str] = None
+    score: float = Field(..., ge=0.0, le=100.0)
+    priority: str = Field(..., description="CRITICAL, HIGH, MEDIUM, LOW")
+    positive_factors: List[str] = Field(default_factory=list)
+    negative_factors: List[str] = Field(default_factory=list)
+    recommended_strategy: str
+    estimated_recovery_probability: float = Field(..., ge=0.0, le=1.0, description="Heuristic probability based on deterministic multi-factor scoring")
+    is_heuristic: bool = True
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RevenueAtRiskResponse(BaseModel):
+    total: float
+    critical: float
+    high: float
+    medium: float
+    low: float
+    case_count: int
+    critical_count: int = 0
+    high_count: int = 0
+    medium_count: int = 0
+    low_count: int = 0
+    trend: List[Dict[str, Any]] = Field(default_factory=list)
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class DecisionExplanationResponse(BaseModel):
+    case_id: str
+    payment_id: str
+    decision: str
+    reason: str
+    evidence: List[str] = Field(default_factory=list)
+    customer_context: Dict[str, Any] = Field(default_factory=dict)
+    risk_factors: List[str] = Field(default_factory=list)
+    guardrail_result: Dict[str, Any] = Field(default_factory=dict)
+    confidence: float = Field(..., ge=0.0, le=1.0)
+    confidence_level: str = Field(..., description="HIGH, MEDIUM, LOW")
+    recommended_next_step: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentTraceStep(BaseModel):
+    step_index: int
+    stage_name: str
+    agent: str
+    status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    summary: str = ""
+    output: Optional[Dict[str, Any]] = None
+    tool_used: Optional[str] = None
+    guardrail_applied: bool = False
+    error_message: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AgentTraceResponse(BaseModel):
+    run_id: str
+    case_id: str
+    payment_id: str
+    request_id: Optional[str] = None
+    correlation_id: Optional[str] = None
+    timeline: List[str] = Field(default_factory=lambda: ["INVESTIGATE", "INTENT", "STRATEGY", "GUARDRAIL", "EXECUTE", "SETTLE"])
+    steps: List[AgentTraceStep] = Field(default_factory=list)
+    total_steps: int = 0
+    completed_steps: int = 0
+    final_status: str
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    total_duration_ms: Optional[int] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AIRecommendationItem(BaseModel):
+    case_id: str
+    payment_id: str
+    amount: float
+    currency: str = "INR"
+    customer_name: str
+    customer_id: str
+    failure_reason: str
+    intent: Optional[str] = None
+    opportunity_score: float
+    priority: str
+    recommended_strategy: str
+    confidence: float
+    confidence_level: str
+    expected_recovery: float
+    action_type: str
+    requires_human_approval: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AIOperationsMetricsResponse(BaseModel):
+    ai_decisions_count: int
+    ai_success_rate: float
+    average_ai_latency_ms: float
+    human_escalation_rate: float
+    tool_success_rate: float
+    active_agents: int = 4
+    period: str = "all_time"
+
+    model_config = ConfigDict(from_attributes=True)
+
 
