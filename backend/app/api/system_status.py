@@ -130,3 +130,35 @@ def get_system_health(db: Session = Depends(get_db)):
         "services": services
     }
 
+
+@router.get("/config-info", tags=["System"])
+def get_config_info():
+    """
+    Returns non-secret configuration metadata for the frontend Settings page.
+    NEVER exposes API keys, secrets, or credentials — only masked/structural info.
+    """
+    from app.core.config import settings
+    from app.integrations.razorpay_client import razorpay_client
+
+    key_id = settings.RAZORPAY_KEY_ID
+    # Mask: show prefix + last 6 chars only (e.g. rzp_test_***RSo8h)
+    if len(key_id) > 10:
+        masked_key = key_id[:9] + "***" + key_id[-6:]
+    else:
+        masked_key = "***"
+
+    return {
+        "razorpay": {
+            "key_id_masked": masked_key,
+            "mode": "test" if key_id.startswith("rzp_test_") else "mock",
+            "use_mock_payments": settings.USE_MOCK_PAYMENTS,
+            "is_live": False,  # live keys are blocked by safety guard
+        },
+        "gemini": {
+            "configured": bool(settings.GEMINI_API_KEY),
+            "model": settings.GEMINI_MODEL,
+            "mode": "live" if settings.GEMINI_API_KEY else "deterministic-fallback",
+        },
+        "environment": settings.ENVIRONMENT,
+        "app_version": "1.0.0",
+    }

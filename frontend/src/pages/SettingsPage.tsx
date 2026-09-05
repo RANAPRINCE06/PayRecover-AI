@@ -24,6 +24,10 @@ export const SettingsPage: React.FC = () => {
   const [copied, setCopied] = useState(false);
   const [healthData, setHealthData] = useState<SystemHealth | null>(null);
   const [healthLoading, setHealthLoading] = useState(false);
+  const [configInfo, setConfigInfo] = useState<{
+    razorpay: { key_id_masked: string; mode: string; use_mock_payments: boolean };
+    gemini: { configured: boolean; model: string; mode: string };
+  } | null>(null);
 
   const webhookUrl = 'http://localhost:8000/api/recovery/webhook';
 
@@ -44,6 +48,19 @@ export const SettingsPage: React.FC = () => {
       setHealthLoading(false);
     }
   };
+
+  const fetchConfigInfo = async () => {
+    try {
+      const res = await fetch('/api/system/config-info');
+      if (res.ok) setConfigInfo(await res.json());
+    } catch (err) {
+      console.warn('Could not load config info:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfigInfo();
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'health') {
@@ -119,7 +136,7 @@ export const SettingsPage: React.FC = () => {
                 <input
                   type="text"
                   readOnly
-                  value="rzp_test_sample_key_12345"
+                  value={configInfo?.razorpay.key_id_masked ?? 'Loading...'}
                   className="mt-1 w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-xs font-mono text-slate-300 select-all"
                 />
               </div>
@@ -136,7 +153,11 @@ export const SettingsPage: React.FC = () => {
 
               <div className="p-3 rounded-xl bg-dark-800 border border-dark-700 text-[11px] text-slate-400 flex items-center gap-2">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                <span>Deterministic mock payment engine active for seamless testing</span>
+                <span>
+                  {configInfo?.razorpay.use_mock_payments
+                    ? 'Mock payment engine active — no real charges'
+                    : `Razorpay ${configInfo?.razorpay.mode ?? 'test'} mode — safe test environment`}
+                </span>
               </div>
             </div>
           </div>

@@ -17,11 +17,30 @@ class RazorpayClientWrapper:
     def __init__(self, key_id: str = None, key_secret: str = None):
         self.key_id = key_id or settings.RAZORPAY_KEY_ID
         self.key_secret = key_secret or settings.RAZORPAY_KEY_SECRET
+
+        # ── SAFETY GUARD: Razorpay live-mode is strictly forbidden ────────────
+        # rzp_live_ keys charge REAL money. This guard ensures only test keys
+        # are ever used in the PayRecover AI demo/buildathon environment.
+        if self.key_id.startswith("rzp_live_"):
+            raise RuntimeError(
+                "SAFETY GUARD: Razorpay live-mode key detected (rzp_live_). "
+                "Only rzp_test_ keys are permitted in this environment. "
+                "Set USE_MOCK_PAYMENTS=True or use a test key to proceed."
+            )
+
+        self.is_test_key = self.key_id.startswith("rzp_test_")
         self.is_mock = (
             settings.USE_MOCK_PAYMENTS or
             "sample" in self.key_id or
-            not self.key_id
+            not self.key_id or
+            not self.is_test_key
         )
+
+        logger.info(
+            f"[Razorpay] Initialized — mode={'mock/simulation' if self.is_mock else 'test-API'}, "
+            f"key={'***' + self.key_id[-6:] if self.key_id else 'none'}"
+        )
+
 
     def fetch_payment(self, payment_id: str) -> Dict[str, Any]:
         """Fetch payment details from Razorpay test mode or simulation"""

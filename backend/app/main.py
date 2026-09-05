@@ -26,6 +26,8 @@ logger = logging.getLogger("payrecover.main")
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting {settings.APP_NAME} in {settings.ENVIRONMENT} mode...")
+    # ── Validate critical configuration (safety guard for live keys, JWT, Gemini) ──
+    settings.validate_startup()
     # Initialize DB schema
     Base.metadata.create_all(bind=engine)
     # Seed initial data
