@@ -24,6 +24,10 @@ client = TestClient(app)
 
 def setup_module(module):
     seed_database()
+    res = client.post("/api/auth/login", json={"email": "operator@payrecover.ai", "password": "Operator@123"})
+    if res.status_code == 200:
+        token = res.json()["access_token"]
+        client.headers["Authorization"] = f"Bearer {token}"
 
 
 def test_health_endpoint():

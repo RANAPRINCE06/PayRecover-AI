@@ -87,8 +87,15 @@ def test_scenario_2_high_value_review_guardrail():
     assert case.payment.amount == 75000.0
     assert case.status == RecoveryStatus.AWAITING_HUMAN_APPROVAL.value
 
+    # Operator or Admin token for recovery actions
+    admin_token = get_token_for("admin@payrecover.ai", "Admin@123")
+
     # Trigger tool execution to enforce approval record generation if not present
-    exec_res = client.post(f"/api/recovery/{case_id}/execute", json={"recovery_case_id": case_id})
+    exec_res = client.post(
+        f"/api/recovery/{case_id}/execute",
+        json={"recovery_case_id": case_id},
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
     assert exec_res.status_code == 200
     assert exec_res.json()["requires_human_approval"] is True
 
@@ -100,7 +107,6 @@ def test_scenario_2_high_value_review_guardrail():
     db.close()
 
     # Operator or Admin approves the case
-    admin_token = get_token_for("admin@payrecover.ai", "Admin@123")
     approve_res = client.post(
         f"/api/recovery/{case_id}/approve",
         headers={"Authorization": f"Bearer {admin_token}"}
@@ -202,7 +208,12 @@ def test_scenario_6_already_paid_pre_execution_guard():
     db.close()
 
     # Attempt to execute recovery on already recovered case
-    res = client.post(f"/api/recovery/{case_id}/execute", json={"recovery_case_id": case_id})
+    op_token = get_token_for("operator@payrecover.ai", "Operator@123")
+    res = client.post(
+        f"/api/recovery/{case_id}/execute",
+        json={"recovery_case_id": case_id},
+        headers={"Authorization": f"Bearer {op_token}"}
+    )
     assert res.status_code == 200
     data = res.json()
     assert data["tool_type"] == ToolType.VERIFY_PAYMENT.value
@@ -263,8 +274,9 @@ def test_scenario_8_concurrent_webhook_idempotent_replay():
     assert sim_res.status_code == 200
     case_id = sim_res.json()["case_id"]
 
-    # 2. First call with Idempotency-Key
-    headers = {"Idempotency-Key": idem_key}
+    # 2. First call with Idempotency-Key and valid token
+    op_token = get_token_for("operator@payrecover.ai", "Operator@123")
+    headers = {"Idempotency-Key": idem_key, "Authorization": f"Bearer {op_token}"}
     res1 = client.post(f"/api/recovery/{case_id}/execute", json={"recovery_case_id": case_id}, headers=headers)
     assert res1.status_code == 200
     data1 = res1.json()

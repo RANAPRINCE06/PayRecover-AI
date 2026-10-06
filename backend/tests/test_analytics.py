@@ -353,9 +353,11 @@ def test_phase6_autonomous_endpoint_exists():
     if not case:
         pytest.skip("No recovery cases in test DB")
 
-    # Just check the route exists and returns a proper response (not 404)
-    res = client.post(f"/api/recovery/{case.id}/autonomous")
-    assert res.status_code in (200, 400, 422, 500)  # Not 404
+    # Route requires Operator/Admin role authentication
+    login_res = client.post("/api/auth/login", json={"email": "operator@payrecover.ai", "password": "Operator@123"})
+    token = login_res.json()["access_token"]
+    res = client.post(f"/api/recovery/{case.id}/autonomous", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code in (200, 400, 422, 500)  # Route reached, not 404 or 401
     assert res.status_code != 404
 
 

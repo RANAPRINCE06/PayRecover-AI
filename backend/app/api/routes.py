@@ -26,7 +26,7 @@ from app.models.entities import (
     User,
     UserRole
 )
-from app.core.auth import get_optional_user
+from app.core.rbac import require_admin, require_operator
 from app.services.event_service import event_service
 from app.services.idempotency_service import IdempotencyService
 from app.schemas.contracts import (
@@ -238,13 +238,8 @@ def get_guardrails(db: Session = Depends(get_db)):
 def update_guardrails(
     payload: GuardrailUpdateSchema,
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user)
+    admin: User = Depends(require_admin)
 ):
-    if current_user and current_user.role != UserRole.ADMIN.value:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{current_user.role}' is unauthorized to modify merchant guardrails. Admin required."
-        )
     guardrail = guardrail_service.get_or_create_guardrails(db)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(guardrail, field, value)
@@ -468,14 +463,8 @@ def execute_case_recovery(
     payload: Optional[ToolExecutionRequest] = None,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user)
+    current_user: User = Depends(require_operator)
 ):
-    if current_user and current_user.role not in [UserRole.ADMIN.value, UserRole.OPERATOR.value]:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{current_user.role}' is not authorized to execute recovery tools. Operator or Admin required."
-        )
-
     effective_key = idempotency_key or (payload.idempotency_key if payload else None)
 
     # 1. Check Idempotency Cache
@@ -546,14 +535,8 @@ def approve_recovery_case(
     case_id: str,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user)
+    current_user: User = Depends(require_operator)
 ):
-    if current_user and current_user.role not in [UserRole.ADMIN.value, UserRole.OPERATOR.value]:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{current_user.role}' is not authorized to approve high-value cases. Operator or Admin required."
-        )
-
     if idempotency_key:
         cached_record = IdempotencyService.get(db, idempotency_key)
         if cached_record:
@@ -595,13 +578,8 @@ def reject_recovery_case(
     case_id: str,
     reason: str = Body("Merchant rejected automated outreach", embed=True),
     db: Session = Depends(get_db),
-    current_user: Optional[User] = Depends(get_optional_user)
+    current_user: User = Depends(require_operator)
 ):
-    if current_user and current_user.role not in [UserRole.ADMIN.value, UserRole.OPERATOR.value]:
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{current_user.role}' is not authorized to reject recovery cases."
-        )
     try:
         res = ToolExecutor.reject_case(db=db, case_id=case_id, reason=reason)
         event_service.broadcast_sync(
@@ -621,7 +599,11 @@ def reject_recovery_case(
 
 # Confirm Payment Recovery (Used to simulate completion of payment link by customer)
 @router.post("/recovery/{case_id}/confirm-settlement", tags=["Recovery Engine"])
-def confirm_settlement(case_id: str, db: Session = Depends(get_db)):
+def confirm_settlement(
+    case_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator)
+):
     case = db.query(RecoveryCase).filter(RecoveryCase.id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
@@ -671,7 +653,8 @@ def run_autonomous_recovery(
     case_id: str,
     customer_message: Optional[str] = Body(default=None, embed=True,
                                            description="Optional customer message for intent analysis"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator)
 ):
     """
     Phase 6: One-click Autonomous Recovery Pipeline.
@@ -743,7 +726,10 @@ def get_autonomous_recovery_status(case_id: str, db: Session = Depends(get_db)):
 
 # 15. Reset Demo Environment
 @router.post("/demo/reset", tags=["Demo Center"])
-def reset_demo_environment(db: Session = Depends(get_db)):
+def reset_demo_environment(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator)
+):
     """
     Cleans up simulated test cases, resets merchant guardrails to baseline,
     and returns a clean slate for buildathon demonstrations.
