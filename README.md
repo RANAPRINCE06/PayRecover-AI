@@ -3,7 +3,7 @@
 > **Production-Grade AI Revenue Recovery Copilot for Indian Fintech Ecosystems**  
 > Intercepting payment failures across UPI, Cards, Net Banking, and recurring e-mandates with deterministic merchant guardrails, multi-agent intelligence, and real-time operations.
 
-[![Backend Tests](https://img.shields.io/badge/Backend%20Tests-125%2F125%20Passing-brightgreen?style=flat-square&logo=pytest)](https://github.com)
+[![Backend Tests](https://img.shields.io/badge/Backend%20Tests-181%2F181%20Passing-brightgreen?style=flat-square&logo=pytest)](https://github.com)
 [![Frontend Build](https://img.shields.io/badge/Frontend%20Build-Passing%20(0%20errors)-blue?style=flat-square&logo=vite)](https://github.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18.2.0-61DAFB?style=flat-square&logo=react)](https://react.dev)
@@ -110,6 +110,7 @@ flowchart TB
 4. **Deterministic Opportunity Scoring**: Multi-factor scoring (0–100) prioritizing high-value, high-intent recovery opportunities.
 5. **Interactive Demo Center**: 5 pre-configured Indian fintech failure scenarios with step-by-step agent trace visualization and a one-click **Reset Sandbox** action.
 6. **Enterprise Security & RBAC**: Granular roles (`ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER`) and cryptographic idempotency protection preventing duplicate executions.
+7. **Verified Razorpay Webhooks & Event-Driven Engine**: Official HMAC-SHA256 signature verification over raw request body, durable PostgreSQL/SQLite outbox pattern, directional payment state machine, atomic worker locks, exponential backoff with jitter, dead-letter queuing, and real-time Webhook Processing Console. See **[Webhook Architecture Documentation](docs/webhook_architecture.md)**.
 
 ---
 
@@ -192,24 +193,19 @@ The frontend starts at `http://localhost:5173`.
 ## 7. Testing & Verification
 
 ### Automated Backend Test Suite
-PayRecover AI features a 125-test automated test suite covering all units, integrations, and 10 end-to-end recovery scenarios:
+PayRecover AI features an extensive **181-test automated test suite** covering all units, integrations, enterprise webhook security, concurrency, and 10 end-to-end recovery scenarios:
 
 ```bash
 cd backend
 python -m pytest tests/ -v
 ```
 
-#### The 10 End-to-End Test Scenarios (`tests/test_phase10_e2e.py`):
-1. `test_scenario_1_standard_upi_card_recovery`: Full card decline to UPI link recovery workflow.
-2. `test_scenario_2_high_value_review_guardrail`: ₹75,000 order held for human approval and signed off by Admin.
-3. `test_scenario_3_exact_amount_link_recovery`: ₹2,499 UPI timeout link generation with exact amount.
-4. `test_scenario_4_checkout_abandonment_recovery`: Abandoned cart recovery with smart incentive.
-5. `test_scenario_5_subscription_renewal_failure`: Recurring auto-debit mandate renewal workflow.
-6. `test_scenario_6_already_paid_pre_execution_guard`: Halts recovery immediately if transaction was already settled.
-7. `test_scenario_7_retry_blocked_payment_error`: Guardrail aborts automated retries once limit (3) is exceeded.
-8. `test_scenario_8_concurrent_webhook_idempotent_replay`: Duplicate requests with `Idempotency-Key` return identical cached response without re-executing tools.
-9. `test_scenario_9_low_confidence_recovery_score`: Evaluates opportunity score (< 40) and negative factor penalties for churn-risk customers.
-10. `test_scenario_10_rbac_rejection_viewer_denied`: Confirms Viewer role receives `403 Forbidden` on admin/operator actions.
+#### Test Suite Breakdown:
+- **Webhook Security & Verification** (`tests/test_webhooks.py`): HMAC-SHA256 signature verification over exact raw request body, modified body rejection, malformed JSON handling, unknown event safety, and unconfigured secret rejection.
+- **Concurrency & Outbox Idempotency** (`tests/test_webhooks.py`): Race conditions on simultaneous delivery, atomic worker claiming, duplicate delivery idempotency, unrelated payment ID correlation rejection, worker crash recovery via `recover_stale_events`, scheduled retry backlog processing, and Redis offline resilience.
+- **Directional State Machine** (`tests/test_webhooks.py`): Settled payment immutability (late `payment.failed` cannot downgrade `SUCCESS`/`RECOVERED`), duplicate captured idempotency, and recovery case status reconciliation.
+- **Operational APIs & RBAC** (`tests/test_webhooks.py`): Unauthenticated call rejection (401), Viewer read-only restrictions, Operator retry permissions, and sweep endpoint execution.
+- **10 End-to-End Recovery Scenarios** (`tests/test_phase10_e2e.py`): Card decline to UPI link, ₹75,000 high-value guardrail approval, cart abandonment, subscription renewal, pre-execution settlement guards, and idempotent replay.
 
 ### Frontend Production Build
 ```bash

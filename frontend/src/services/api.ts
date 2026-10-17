@@ -28,7 +28,10 @@ import {
   DecisionExplanation,
   AgentTrace,
   AIRecommendation,
-  AIOperationsMetrics
+  AIOperationsMetrics,
+  WebhookEventItem,
+  WebhookEventListResponse,
+  WebhookHealth
 } from '../types';
 
 const API_BASE = '/api';
@@ -282,5 +285,33 @@ export const api = {
     request<AgentTrace[]>(`/recovery/traces?limit=${limit}`),
 
   getAIRecommendations: (limit = 6) =>
-    request<AIRecommendation[]>(`/recovery/recommendations?limit=${limit}`)
+    request<AIRecommendation[]>(`/recovery/recommendations?limit=${limit}`),
+
+  // ─── Webhook Event Processing & Resilience ────────────────────
+  getWebhookEvents: (page = 1, limit = 20, status?: string, eventType?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) params.append('status', status);
+    if (eventType) params.append('event_type', eventType);
+    return request<WebhookEventListResponse>(`/webhooks/events?${params.toString()}`);
+  },
+
+  getWebhookEventDetail: (eventId: string) =>
+    request<WebhookEventItem>(`/webhooks/events/${eventId}`),
+
+  getFailedWebhookEvents: (limit = 50) =>
+    request<WebhookEventItem[]>(`/webhooks/failed?limit=${limit}`),
+
+  retryWebhookEvent: (eventId: string) =>
+    request<{ message: string; event_id: string }>(`/webhooks/events/${eventId}/retry`, {
+      method: 'POST'
+    }),
+
+  getWebhookHealth: () =>
+    request<WebhookHealth>('/webhooks/health'),
+
+  sweepWebhooks: (staleThresholdSeconds = 300, batchSize = 20) =>
+    request<{ status: string; stale_events_recovered: number; retries_processed: number }>(
+      `/webhooks/sweep?stale_threshold_seconds=${staleThresholdSeconds}&batch_size=${batchSize}`,
+      { method: 'POST' }
+    )
 };

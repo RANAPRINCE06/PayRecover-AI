@@ -746,3 +746,42 @@ export interface AIOperationsMetrics {
   period: string;
 }
 
+export interface WebhookEventItem {
+  id: string;
+  provider: string;
+  provider_event_id: string;
+  event_type: string;
+  status: 'RECEIVED' | 'PROCESSING' | 'PROCESSED' | 'RETRY_PENDING' | 'FAILED' | 'DEAD_LETTER';
+  entity_id?: string | null;
+  internal_payment_id?: string | null;
+  internal_case_id?: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  next_retry_at?: string | null;
+  last_error?: string | null;
+  correlation_id?: string | null;
+  received_at: string;
+  processed_at?: string | null;
+  updated_at: string;
+  sanitized_payload?: Record<string, any>;
+}
+
+export interface WebhookEventListResponse {
+  items: WebhookEventItem[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+}
+
+export interface WebhookHealth {
+  status: 'healthy' | 'degraded';
+  total_received: number;
+  total_processed: number;
+  total_pending: number;
+  total_failed: number;
+  total_dead_letter: number;
+  secret_configured: boolean;
+  mode: string;
+}
+

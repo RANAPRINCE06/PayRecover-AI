@@ -634,3 +634,47 @@ class AIOperationsMetricsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+# -------------------------------------------------------------
+# Webhook Contracts (Production Event Ingestion & Outbox)
+# -------------------------------------------------------------
+
+class WebhookEventResponse(BaseModel):
+    id: str
+    provider: str
+    provider_event_id: str
+    event_type: str
+    status: str
+    entity_id: Optional[str] = None
+    internal_payment_id: Optional[str] = None
+    internal_case_id: Optional[str] = None
+    attempt_count: int
+    max_attempts: int
+    next_retry_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    correlation_id: Optional[str] = None
+    received_at: datetime
+    processed_at: Optional[datetime] = None
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class WebhookEventListResponse(BaseModel):
+    items: List[WebhookEventResponse]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+
+
+class WebhookHealthResponse(BaseModel):
+    status: str
+    total_received: int
+    total_processed: int
+    total_pending: int
+    total_failed: int
+    total_dead_letter: int
+    secret_configured: bool
+    mode: str
+
+

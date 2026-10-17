@@ -36,6 +36,15 @@ class RecoveryStatus(str, enum.Enum):
     EXPIRED = "EXPIRED"
 
 
+class WebhookEventStatus(str, enum.Enum):
+    RECEIVED = "RECEIVED"
+    PROCESSING = "PROCESSING"
+    PROCESSED = "PROCESSED"
+    RETRY_PENDING = "RETRY_PENDING"
+    FAILED = "FAILED"
+    DEAD_LETTER = "DEAD_LETTER"
+
+
 class PaymentMethod(str, enum.Enum):
     UPI = "UPI"
     CARD = "CARD"
@@ -315,4 +324,36 @@ class IdempotencyRecord(Base):
     status_code = Column(Integer, default=200, nullable=False)
     result_json = Column(Text, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+# 12. Webhook Event (Production Webhook Ingestion & Durable Outbox)
+class WebhookEvent(Base):
+    __tablename__ = "webhook_events"
+
+    id = Column(String(50), primary_key=True, index=True)
+    provider = Column(String(50), default="razorpay", nullable=False, index=True)
+    provider_event_id = Column(String(120), unique=True, nullable=False, index=True)
+    event_type = Column(String(100), nullable=False, index=True)
+    status = Column(String(50), default=WebhookEventStatus.RECEIVED.value, nullable=False, index=True)
+    entity_id = Column(String(100), nullable=True, index=True)
+    internal_payment_id = Column(String(50), ForeignKey("payments.id"), nullable=True, index=True)
+    internal_case_id = Column(String(50), ForeignKey("recovery_cases.id"), nullable=True, index=True)
+    payload_json = Column(Text, nullable=False)
+    attempt_count = Column(Integer, default=0, nullable=False)
+    max_attempts = Column(Integer, default=5, nullable=False)
+    next_retry_at = Column(DateTime, nullable=True, index=True)
+    last_error = Column(Text, nullable=True)
+    correlation_id = Column(String(100), nullable=True, index=True)
+    processing_metadata_json = Column(Text, nullable=True)
+    received_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    processed_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    payment = relationship("Payment")
+    recovery_case = relationship("RecoveryCase")
+
+    __table_args__ = (
+        Index("idx_webhook_status_retry", "status", "next_retry_at"),
+        Index("idx_webhook_type_received", "event_type", "received_at"),
+    )
 

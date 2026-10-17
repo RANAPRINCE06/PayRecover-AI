@@ -15,6 +15,7 @@ from app.api.system_status import router as system_router
 from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.events import router as events_router
+from app.api.webhooks import router as webhooks_router
 
 # Setup logging
 logging.basicConfig(
@@ -82,6 +83,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router, prefix="/api/auth")
 app.include_router(users_router, prefix="/api/users")
 app.include_router(events_router, prefix="/api/events")
+app.include_router(webhooks_router, prefix="/api/webhooks")
 app.include_router(api_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api/analytics")
 app.include_router(system_router, prefix="/api/system")

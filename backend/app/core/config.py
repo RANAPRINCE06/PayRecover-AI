@@ -26,9 +26,21 @@ class Settings(BaseSettings):
     # Redis
     REDIS_URL: str = "redis://localhost:6379/0"
 
-    # Razorpay Test Mode
+    # Rate Limiting & Abuse Prevention (Login Protection)
+    LOGIN_RATE_LIMIT_ENABLED: bool = True
+    LOGIN_IP_MAX_ATTEMPTS: int = 5
+    LOGIN_IP_WINDOW_SECONDS: int = 60
+    LOGIN_ACCOUNT_MAX_ATTEMPTS: int = 5
+    LOGIN_ACCOUNT_WINDOW_SECONDS: int = 60
+
+    # Session Security & JWT Revocation
+    AUTH_REVOCATION_ENABLED: bool = True
+    AUTH_FAIL_CLOSED_ON_REDIS_ERROR: bool = False
+
+    # Razorpay Test Mode & Webhooks
     RAZORPAY_KEY_ID: str = "rzp_test_sample_key_12345"
     RAZORPAY_KEY_SECRET: str = "rzp_test_sample_secret_67890"
+    RAZORPAY_WEBHOOK_SECRET: str = "rzp_webhook_secret_sample_12345"
     USE_MOCK_PAYMENTS: bool = True
 
     # AI (Gemini)

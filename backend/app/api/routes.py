@@ -3,7 +3,7 @@ import uuid
 import random
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
-from fastapi import APIRouter, Depends, HTTPException, Query, Body, Header
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, Header, Request, BackgroundTasks
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
 
@@ -644,6 +644,17 @@ def confirm_settlement(
         "recovered_amount": case.recovered_amount,
         "payment_id": payment.id
     }
+
+
+# Webhook endpoint alias matching frontend configuration
+@router.post("/recovery/webhook", tags=["Webhooks"])
+async def recovery_webhook_listener_alias(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    from app.api.webhooks import receive_razorpay_webhook
+    return await receive_razorpay_webhook(request, background_tasks, db)
 
 
 # ── Phase 6: Autonomous Recovery Orchestrator ────────────────────────────────
