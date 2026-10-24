@@ -17,3 +17,4 @@ aiofiles>=23.2.1
 bcrypt>=4.1.0
 pyjwt>=2.8.0
 sse-starlette>=2.1.0
+numpy>=1.26.0

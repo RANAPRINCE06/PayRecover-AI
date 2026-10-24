@@ -914,3 +914,162 @@ export interface ExplainabilityResponse {
   decision_timestamp: string;
 }
 
+// ─── Phase 5: RAG Knowledge Engine & Grounded Recommendations ───
+
+export type KnowledgeCategory = 'MERCHANT_POLICY' | 'FAILURE_KNOWLEDGE' | 'RECOVERY_PLAYBOOK' | 'HISTORICAL_INSIGHT';
+export type VerificationStatus = 'VERIFIED' | 'DRAFT' | 'DEPRECATED' | 'CONFLICTED';
+
+export interface KnowledgeChunkItem {
+  id: string;
+  document_id: string;
+  chunk_index: number;
+  heading: string;
+  content: string;
+  content_hash: string;
+  token_count: number;
+  chunk_metadata?: Record<string, any> | null;
+  created_at: string;
+}
+
+export interface KnowledgeDocumentItem {
+  id: string;
+  title: string;
+  category: KnowledgeCategory | string;
+  source_type: string;
+  source_reference: string;
+  merchant_id?: string | null;
+  version: number;
+  verification_status: VerificationStatus | string;
+  effective_date?: string | null;
+  expiration_date?: string | null;
+  content_hash: string;
+  raw_content: string;
+  doc_metadata?: Record<string, any> | null;
+  chunk_count: number;
+  chunks?: KnowledgeChunkItem[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface KnowledgeDocumentCreate {
+  title: string;
+  category: string;
+  source_type: string;
+  source_reference: string;
+  merchant_id?: string | null;
+  raw_content: string;
+  verification_status?: string;
+  effective_date?: string | null;
+  expiration_date?: string | null;
+  doc_metadata?: Record<string, any> | null;
+}
+
+export interface KnowledgeDocumentUpdate {
+  title?: string;
+  category?: string;
+  source_type?: string;
+  source_reference?: string;
+  merchant_id?: string | null;
+  raw_content?: string;
+  verification_status?: string;
+  effective_date?: string | null;
+  expiration_date?: string | null;
+  doc_metadata?: Record<string, any> | null;
+}
+
+export interface KnowledgeDocumentListResponse {
+  items: KnowledgeDocumentItem[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+  category_counts: Record<string, number>;
+}
+
+export interface KnowledgeQueryRequest {
+  query: string;
+  category?: string | null;
+  merchant_id?: string | null;
+  limit?: number;
+  relevance_threshold?: number;
+}
+
+export interface RetrievedPassage {
+  chunk_id: string;
+  document_id: string;
+  document_title: string;
+  category: string;
+  source_type: string;
+  source_reference: string;
+  merchant_id?: string | null;
+  heading: string;
+  content: string;
+  similarity_score: number;
+  lexical_score: number;
+  combined_score: number;
+  verification_status: string;
+  version: number;
+  is_merchant_specific: boolean;
+  retrieval_method: 'semantic' | 'lexical' | 'hybrid' | string;
+  detected_conflicts: string[];
+}
+
+export interface KnowledgeQueryResponse {
+  query: string;
+  total_retrieved: number;
+  is_sufficient: boolean;
+  highest_score: number;
+  passages: RetrievedPassage[];
+  policy_conflicts_detected: string[];
+  latency_ms: number;
+}
+
+export interface EvidenceGroundedRecommendation {
+  recovery_case_id: string;
+  payment_id: string;
+  recommended_strategy: string;
+  recommendation_summary: string;
+  reasoning_summary: string;
+  verified_facts: string[];
+  approved_policies: string[];
+  observed_statistics?: {
+    cohort_sample_size?: number;
+    empirical_recovery_rate?: number;
+    successful_recoveries?: number;
+    mean_recovered_amount?: number;
+    data_source?: string;
+    [key: string]: any;
+  } | null;
+  probability_estimates?: {
+    calibrated_recovery_probability?: number;
+    confidence_interval_95?: [number, number];
+    wilson_lower_bound?: number;
+    wilson_upper_bound?: number;
+    uncertainty_level?: string;
+    calibration_method?: string;
+    [key: string]: any;
+  } | null;
+  ai_generated_rationales: string[];
+  supporting_citations: RetrievedPassage[];
+  rejected_alternatives: Array<{ strategy: string; rejection_reason: string }>;
+  missing_evidence: string[];
+  evidence_sufficiency: 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT' | string;
+  policy_conflicts: string[];
+  guardrails_enforced: string[];
+  human_approval_required: boolean;
+  approval_reason?: string | null;
+  created_at: string;
+}
+
+export interface RAGHealthResponse {
+  status: string;
+  total_documents: number;
+  total_chunks: number;
+  category_distribution: Record<string, number>;
+  embedding_model: string;
+  embedding_dimension: number;
+  vector_search_mode: string;
+  hybrid_ranking_active: boolean;
+  last_indexed_at?: string | null;
+}
+

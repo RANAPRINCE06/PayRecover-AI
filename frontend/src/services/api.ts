@@ -36,7 +36,15 @@ import {
   OutcomeSummaryStats,
   StrategyEvaluationResponse,
   ExplainabilityResponse,
-  CalibrationMetrics
+  CalibrationMetrics,
+  KnowledgeDocumentItem,
+  KnowledgeDocumentCreate,
+  KnowledgeDocumentUpdate,
+  KnowledgeDocumentListResponse,
+  KnowledgeQueryRequest,
+  KnowledgeQueryResponse,
+  EvidenceGroundedRecommendation,
+  RAGHealthResponse
 } from '../types';
 
 const API_BASE = '/api';
@@ -342,5 +350,46 @@ export const api = {
     request<CalibrationMetrics>('/intelligence/calibration'),
 
   recalibrateModel: () =>
-    request<CalibrationMetrics>('/intelligence/recalibrate', { method: 'POST' })
+    request<CalibrationMetrics>('/intelligence/recalibrate', { method: 'POST' }),
+
+  // ─── Phase 5: RAG Knowledge Engine & Grounded Recommendations ───
+  getKnowledgeDocuments: (page = 1, limit = 20, category?: string, status?: string, search?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (category) params.append('category', category);
+    if (status) params.append('verification_status', status);
+    if (search) params.append('search', search);
+    return request<KnowledgeDocumentListResponse>(`/knowledge/documents?${params.toString()}`);
+  },
+
+  getKnowledgeDocumentById: (id: string) =>
+    request<KnowledgeDocumentItem>(`/knowledge/documents/${id}`),
+
+  createKnowledgeDocument: (payload: KnowledgeDocumentCreate) =>
+    request<KnowledgeDocumentItem>('/knowledge/documents', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  updateKnowledgeDocument: (id: string, payload: KnowledgeDocumentUpdate) =>
+    request<KnowledgeDocumentItem>(`/knowledge/documents/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    }),
+
+  deleteKnowledgeDocument: (id: string) =>
+    request<{ success: boolean; message: string }>(`/knowledge/documents/${id}`, {
+      method: 'DELETE'
+    }),
+
+  queryKnowledge: (payload: KnowledgeQueryRequest) =>
+    request<KnowledgeQueryResponse>('/knowledge/query', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  getCaseEvidence: (caseId: string) =>
+    request<EvidenceGroundedRecommendation>(`/knowledge/case/${caseId}/evidence`),
+
+  getKnowledgeHealth: () =>
+    request<RAGHealthResponse>('/knowledge/health')
 };

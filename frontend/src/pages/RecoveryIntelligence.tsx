@@ -41,7 +41,17 @@ import {
   ChevronRight,
   X,
   Database,
-  Sliders
+  Sliders,
+  BookOpen,
+  Search,
+  FileText,
+  Plus,
+  Trash2,
+  CheckCircle,
+  ExternalLink,
+  AlertOctagon,
+  Terminal,
+  Check
 } from 'lucide-react';
 import {
   AnalyticsOverview,
@@ -56,7 +66,12 @@ import {
   OutcomeRecordItem,
   OutcomeSummaryStats,
   ExplainabilityResponse,
-  StrategyCandidateEvaluation
+  StrategyCandidateEvaluation,
+  KnowledgeDocumentItem,
+  KnowledgeChunkItem,
+  KnowledgeQueryResponse,
+  EvidenceGroundedRecommendation,
+  RAGHealthResponse
 } from '../types';
 import { api } from '../services/api';
 
@@ -77,7 +92,7 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
   const [recalibrating, setRecalibrating] = useState(false);
 
   // Tab views
-  const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'calibration' | 'outcomes'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'calibration' | 'outcomes' | 'knowledge'>('overview');
 
   // Base analytics
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
@@ -98,6 +113,36 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
   const [explainability, setExplainability] = useState<ExplainabilityResponse | null>(null);
   const [explainLoading, setExplainLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<string>('');
+
+  // Phase 5 RAG Knowledge Engine & Grounded Recommendations Data
+  const [ragHealth, setRagHealth] = useState<RAGHealthResponse | null>(null);
+  const [documents, setDocuments] = useState<KnowledgeDocumentItem[]>([]);
+  const [docTotal, setDocTotal] = useState(0);
+  const [docCategoryCounts, setDocCategoryCounts] = useState<Record<string, number>>({});
+  const [docCategoryFilter, setDocCategoryFilter] = useState<string>('');
+  const [docSearch, setDocSearch] = useState<string>('');
+  const [selectedDoc, setSelectedDoc] = useState<KnowledgeDocumentItem | null>(null);
+  const [docLoading, setDocLoading] = useState(false);
+
+  // Ingestion Modal
+  const [showIngestModal, setShowIngestModal] = useState(false);
+  const [ingestTitle, setIngestTitle] = useState('');
+  const [ingestCategory, setIngestCategory] = useState('MERCHANT_POLICY');
+  const [ingestSourceType, setIngestSourceType] = useState('POLICY');
+  const [ingestSourceRef, setIngestSourceRef] = useState('');
+  const [ingestContent, setIngestContent] = useState('');
+  const [ingestSubmitting, setIngestSubmitting] = useState(false);
+  const [ingestError, setIngestError] = useState<string | null>(null);
+
+  // Retrieval Test Console
+  const [testQuery, setTestQuery] = useState('');
+  const [testCategory, setTestCategory] = useState<string>('');
+  const [queryLoading, setQueryLoading] = useState(false);
+  const [testResults, setTestResults] = useState<KnowledgeQueryResponse | null>(null);
+
+  // Evidence Dossier for Case
+  const [caseEvidence, setCaseEvidence] = useState<EvidenceGroundedRecommendation | null>(null);
+  const [explainModalTab, setExplainModalTab] = useState<'decision' | 'epistemic' | 'citations'>('decision');
 
   const fetchAnalytics = useCallback(async (isSilent = false) => {
     if (!isSilent) setLoading(true);
@@ -156,13 +201,102 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
   const handleSelectCase = async (caseId: string) => {
     setSelectedCaseId(caseId);
     setExplainLoading(true);
+    setExplainModalTab('decision');
     try {
-      const expl = await api.getCaseExplainability(caseId);
+      const [expl, evid] = await Promise.all([
+        api.getCaseExplainability(caseId).catch(() => null),
+        api.getCaseEvidence(caseId).catch(() => null)
+      ]);
       setExplainability(expl);
+      setCaseEvidence(evid);
     } catch (err) {
       console.error('Failed to load explainability dossier:', err);
     } finally {
       setExplainLoading(false);
+    }
+  };
+
+  const fetchKnowledgeData = useCallback(async () => {
+    setDocLoading(true);
+    try {
+      const [health, docsRes] = await Promise.all([
+        api.getKnowledgeHealth().catch(() => null),
+        api.getKnowledgeDocuments(1, 30, docCategoryFilter || undefined, undefined, docSearch || undefined).catch(() => null)
+      ]);
+      if (health) setRagHealth(health);
+      if (docsRes) {
+        setDocuments(docsRes.items || []);
+        setDocTotal(docsRes.total || 0);
+        setDocCategoryCounts(docsRes.category_counts || {});
+      }
+    } catch (err) {
+      console.error('Failed to fetch RAG knowledge base data:', err);
+    } finally {
+      setDocLoading(false);
+    }
+  }, [docCategoryFilter, docSearch]);
+
+  useEffect(() => {
+    if (activeTab === 'knowledge') {
+      fetchKnowledgeData();
+    }
+  }, [activeTab, fetchKnowledgeData]);
+
+  const handleTestQuery = async (queryText?: string) => {
+    const q = queryText !== undefined ? queryText : testQuery;
+    if (!q || !q.trim()) return;
+    setQueryLoading(true);
+    try {
+      const res = await api.queryKnowledge({
+        query: q.trim(),
+        category: testCategory || null,
+        limit: 5,
+        relevance_threshold: 0.30
+      });
+      setTestResults(res);
+    } catch (err) {
+      console.error('Knowledge query execution failed:', err);
+    } finally {
+      setQueryLoading(false);
+    }
+  };
+
+  const handleIngestDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ingestTitle.trim() || !ingestContent.trim() || !ingestSourceRef.trim()) {
+      setIngestError('Please fill in all required fields.');
+      return;
+    }
+    setIngestSubmitting(true);
+    setIngestError(null);
+    try {
+      await api.createKnowledgeDocument({
+        title: ingestTitle.trim(),
+        category: ingestCategory,
+        source_type: ingestSourceType,
+        source_reference: ingestSourceRef.trim(),
+        raw_content: ingestContent.trim(),
+        verification_status: 'VERIFIED'
+      });
+      setShowIngestModal(false);
+      setIngestTitle('');
+      setIngestContent('');
+      setIngestSourceRef('');
+      await fetchKnowledgeData();
+    } catch (err: any) {
+      setIngestError(err.message || 'Failed to ingest knowledge document.');
+    } finally {
+      setIngestSubmitting(false);
+    }
+  };
+
+  const handleDeleteDoc = async (docId: string) => {
+    if (!window.confirm(`Are you sure you want to delete knowledge document "${docId}"? This will delete all its embeddings.`)) return;
+    try {
+      await api.deleteKnowledgeDocument(docId);
+      await fetchKnowledgeData();
+    } catch (err) {
+      console.error('Failed to delete document:', err);
     }
   };
 
@@ -239,6 +373,13 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
               className={`px-3 py-1 rounded-md font-medium transition ${activeTab === 'outcomes' ? 'bg-brand-cyan text-dark-900 font-bold shadow-glow-cyan' : 'text-slate-400 hover:text-white'}`}
             >
               Verified Outcomes
+            </button>
+            <button
+              onClick={() => setActiveTab('knowledge')}
+              className={`px-3 py-1 rounded-md font-medium transition flex items-center gap-1.5 ${activeTab === 'knowledge' ? 'bg-brand-cyan text-dark-900 font-bold shadow-glow-cyan' : 'text-slate-400 hover:text-white'}`}
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              Knowledge & RAG
             </button>
           </div>
 
@@ -753,6 +894,558 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
             </div>
           )}
 
+          {/* PHASE 5: RAG KNOWLEDGE EXPLORER TAB */}
+          {activeTab === 'knowledge' && (
+            <div className="space-y-6">
+              {/* RAG Operational Health Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="p-4 rounded-xl bg-dark-850 border border-dark-750 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Indexed Knowledge Docs</span>
+                    <BookOpen className="w-4 h-4 text-brand-cyan" />
+                  </div>
+                  <div className="mt-3">
+                    <span className="text-2xl font-extrabold text-white font-mono">
+                      {ragHealth?.total_documents ?? documents.length}
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      {docCategoryCounts['MERCHANT_POLICY'] || 0} Policies · {docCategoryCounts['FAILURE_KNOWLEDGE'] || 0} Failure Guides
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-dark-850 border border-dark-750 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Active Vector Chunks</span>
+                    <Layers className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div className="mt-3">
+                    <span className="text-2xl font-extrabold text-emerald-400 font-mono">
+                      {ragHealth?.total_chunks ?? 0}
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      {ragHealth?.embedding_model || 'text-embedding-004'} · {ragHealth?.embedding_dimension || 768}-dim
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-dark-850 border border-dark-750 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Hybrid Ranking Engine</span>
+                    <Sparkles className="w-4 h-4 text-violet-400" />
+                  </div>
+                  <div className="mt-3">
+                    <span className="text-sm font-bold text-violet-300 font-mono">
+                      Dense (0.55) + Lexical (0.35)
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      +0.15 Merchant Boost · +0.10 Verified
+                    </span>
+                  </div>
+                </div>
+
+                <div className="p-4 rounded-xl bg-dark-850 border border-dark-750 flex flex-col justify-between">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-slate-400 font-medium">Tenant Storage & Resilience</span>
+                    <ShieldCheck className="w-4 h-4 text-brand-cyan" />
+                  </div>
+                  <div className="mt-3">
+                    <span className="text-sm font-bold text-white font-mono">
+                      ACID Relational Vectors
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      Strict Multi-Tenant Isolation
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Interactive Retrieval Test Console */}
+              <div className="p-5 rounded-2xl bg-dark-850 border border-dark-750 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-brand-cyan" />
+                      Interactive Hybrid Retrieval Console
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Test hybrid semantic vector + lexical retrieval across merchant policies, failure guides, and playbooks in real-time.
+                    </p>
+                  </div>
+                  {testResults && (
+                    <div className="flex items-center gap-2">
+                      <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold border ${testResults.is_sufficient ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' : 'bg-rose-500/10 text-rose-400 border-rose-500/30'}`}>
+                        {testResults.is_sufficient ? 'EVIDENCE SUFFICIENT' : 'INSUFFICIENT COVERAGE'}
+                      </span>
+                      <span className="px-2 py-1 rounded bg-dark-800 text-slate-400 font-mono text-[10px] border border-dark-700">
+                        {testResults.latency_ms}ms · {testResults.total_retrieved} passages
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Scenario Presets */}
+                <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                  <span className="text-slate-400 text-xs">Scenario Presets:</span>
+                  {[
+                    { label: 'Card 3DS Failure & UPI Link', q: 'card decline 3DS authentication failure alternate payment method' },
+                    { label: 'UPI Switch Latency Buffer (15m)', q: 'UPI timeout switch processing latency 15 minutes wait buffer' },
+                    { label: 'BharatTech Quiet Hours (22:00-08:00)', q: 'WhatsApp primary communication channel rules quiet hours 22:00' },
+                    { label: 'Checkout Abandonment Discount Cap', q: 'maximum discount cap checkout abandonment 10 percent limit' },
+                    { label: 'Stop Conditions & Fraud Cease', q: 'stop recovery conditions customer cancellation fraud chargeback' }
+                  ].map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => { setTestQuery(preset.q); handleTestQuery(preset.q); }}
+                      className="px-2.5 py-1 rounded-lg bg-dark-800 hover:bg-dark-750 text-slate-300 hover:text-brand-cyan border border-dark-700 transition"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Query Input Bar */}
+                <div className="flex flex-col sm:flex-row items-center gap-2.5">
+                  <div className="relative flex-1 w-full">
+                    <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={testQuery}
+                      onChange={(e) => setTestQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && handleTestQuery()}
+                      placeholder="Enter recovery scenario, failure reason, or policy query..."
+                      className="w-full pl-9 pr-4 py-2 bg-dark-900 border border-dark-700 rounded-xl text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-cyan transition"
+                    />
+                  </div>
+                  <select
+                    value={testCategory}
+                    onChange={(e) => setTestCategory(e.target.value)}
+                    className="w-full sm:w-48 px-3 py-2 bg-dark-900 border border-dark-700 rounded-xl text-xs text-slate-300 focus:outline-none focus:border-brand-cyan"
+                  >
+                    <option value="">All Categories</option>
+                    <option value="MERCHANT_POLICY">Merchant Policy</option>
+                    <option value="FAILURE_KNOWLEDGE">Failure Knowledge</option>
+                    <option value="RECOVERY_PLAYBOOK">Recovery Playbook</option>
+                    <option value="HISTORICAL_INSIGHT">Historical Insight</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => handleTestQuery()}
+                    disabled={queryLoading || !testQuery.trim()}
+                    className="w-full sm:w-auto px-4 py-2 rounded-xl bg-brand-cyan hover:bg-brand-cyan/90 text-dark-900 font-bold text-xs flex items-center justify-center gap-2 shadow-glow-cyan disabled:opacity-50 transition"
+                  >
+                    {queryLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
+                    Execute Query
+                  </button>
+                </div>
+
+                {/* Retrieval Results Display */}
+                {testResults && (
+                  <div className="space-y-3 pt-2 border-t border-dark-750">
+                    {/* Policy Conflicts Alert */}
+                    {testResults.policy_conflicts_detected && testResults.policy_conflicts_detected.length > 0 && (
+                      <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 space-y-1">
+                        <div className="flex items-center gap-2 font-bold text-xs text-white">
+                          <AlertTriangle className="w-4 h-4 text-amber-400" />
+                          Policy Conflict Detected — Strictest Merchant Rule Enforced:
+                        </div>
+                        <ul className="list-disc pl-5 text-[11px] space-y-0.5">
+                          {testResults.policy_conflicts_detected.map((conf, idx) => (
+                            <li key={idx}>{conf}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Passages List */}
+                    <div className="space-y-2">
+                      <span className="text-[11px] font-semibold text-slate-400 block">
+                        Retrieved Passages Ranked by Hybrid Similarity:
+                      </span>
+                      {testResults.passages.length === 0 ? (
+                        <div className="py-6 text-center text-slate-500 text-xs">
+                          No knowledge passages matched this query exceeding relevance threshold (0.30).
+                        </div>
+                      ) : (
+                        testResults.passages.map((p, idx) => (
+                          <div
+                            key={p.chunk_id || idx}
+                            className="p-3.5 rounded-xl bg-dark-900/90 border border-dark-750 space-y-2 hover:border-dark-600 transition"
+                          >
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="text-white font-bold text-xs">
+                                  {p.heading}
+                                </span>
+                                <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-dark-800 text-slate-400 border border-dark-700">
+                                  {p.document_title}
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-brand-cyan/10 text-brand-cyan border border-brand-cyan/20">
+                                  {p.category}
+                                </span>
+                                {p.is_merchant_specific && (
+                                  <span className="text-[10px] px-2 py-0.5 rounded bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                                    Merchant Isolated
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-[11px] font-mono">
+                                <span className="text-slate-400 text-[10px]">
+                                  Dense: <strong className="text-emerald-400">{p.similarity_score.toFixed(3)}</strong>
+                                </span>
+                                <span className="text-slate-400 text-[10px]">
+                                  Lexical: <strong className="text-violet-400">{p.lexical_score.toFixed(3)}</strong>
+                                </span>
+                                <span className="px-2 py-0.5 rounded bg-dark-800 border border-dark-700 text-brand-cyan font-bold text-[11px]">
+                                  Hybrid: {p.combined_score.toFixed(3)}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-slate-300 leading-relaxed font-sans bg-dark-850 p-2.5 rounded-lg border border-dark-750">
+                              {p.content}
+                            </p>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500 font-mono">
+                              <span>Chunk ID: {p.chunk_id} · Source: {p.source_reference}</span>
+                              <span>Method: {p.retrieval_method}</span>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Document Inventory Table */}
+              <div className="p-5 rounded-2xl bg-dark-850 border border-dark-750 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-brand-cyan" />
+                      Knowledge Base Document Inventory
+                    </h3>
+                    <p className="text-xs text-slate-400">
+                      Verified merchant policies, payment failure troubleshooting guides, recovery playbooks, and empirical insights.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowIngestModal(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-brand-cyan hover:bg-brand-cyan/90 text-dark-900 font-bold text-xs flex items-center gap-1.5 shadow-glow-cyan transition"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Ingest Document
+                  </button>
+                </div>
+
+                {/* Category Filter Pills & Search */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                    {[
+                      { key: '', label: 'All Documents', count: docTotal },
+                      { key: 'MERCHANT_POLICY', label: 'Merchant Policies', count: docCategoryCounts['MERCHANT_POLICY'] || 0 },
+                      { key: 'FAILURE_KNOWLEDGE', label: 'Failure Guides', count: docCategoryCounts['FAILURE_KNOWLEDGE'] || 0 },
+                      { key: 'RECOVERY_PLAYBOOK', label: 'Playbooks', count: docCategoryCounts['RECOVERY_PLAYBOOK'] || 0 },
+                      { key: 'HISTORICAL_INSIGHT', label: 'Historical Insights', count: docCategoryCounts['HISTORICAL_INSIGHT'] || 0 }
+                    ].map((tab) => (
+                      <button
+                        key={tab.key}
+                        onClick={() => setDocCategoryFilter(tab.key)}
+                        className={`px-3 py-1 rounded-lg font-medium transition ${docCategoryFilter === tab.key ? 'bg-dark-700 text-brand-cyan font-bold border border-brand-cyan/30' : 'bg-dark-800 text-slate-400 hover:text-white border border-dark-750'}`}
+                      >
+                        {tab.label} <span className="text-[10px] opacity-75 font-mono ml-1">({tab.count})</span>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="relative w-full sm:w-64">
+                    <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={docSearch}
+                      onChange={(e) => setDocSearch(e.target.value)}
+                      placeholder="Search documents..."
+                      className="w-full pl-8 pr-3 py-1.5 bg-dark-900 border border-dark-700 rounded-lg text-xs text-white placeholder-slate-500 focus:outline-none focus:border-brand-cyan"
+                    />
+                  </div>
+                </div>
+
+                {/* Documents Table */}
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="border-b border-dark-700 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                        <th className="py-2.5 px-3">Title & Category</th>
+                        <th className="py-2.5 px-3">Source & Reference</th>
+                        <th className="py-2.5 px-3 text-center">Chunks</th>
+                        <th className="py-2.5 px-3">Tenant Scope</th>
+                        <th className="py-2.5 px-3">Status</th>
+                        <th className="py-2.5 px-3 text-right">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-dark-750 text-xs">
+                      {docLoading ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-400">
+                            <Loader2 className="w-5 h-5 text-brand-cyan animate-spin inline-block mr-2" />
+                            Loading Knowledge Documents...
+                          </td>
+                        </tr>
+                      ) : documents.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-8 text-center text-slate-500">
+                            No knowledge documents found matching filter.
+                          </td>
+                        </tr>
+                      ) : (
+                        documents.map((doc) => (
+                          <tr key={doc.id} className="hover:bg-dark-800/50 transition">
+                            <td className="py-3 px-3">
+                              <span className="font-semibold text-white block">{doc.title}</span>
+                              <span className="text-[10px] text-slate-400 font-mono">{doc.category}</span>
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className="text-slate-300 font-mono text-[11px] block">{doc.source_reference}</span>
+                              <span className="text-[10px] text-slate-500">{doc.source_type}</span>
+                            </td>
+                            <td className="py-3 px-3 text-center">
+                              <span className="font-mono text-emerald-400 font-bold">{doc.chunk_count}</span>
+                              <span className="text-[9px] text-slate-500 block">v{doc.version}</span>
+                            </td>
+                            <td className="py-3 px-3">
+                              {doc.merchant_id ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-violet-500/10 text-violet-400 border border-violet-500/20">
+                                  {doc.merchant_id}
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-dark-750 text-slate-400 border border-dark-700">
+                                  Global Platform
+                                </span>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${doc.verification_status === 'VERIFIED' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : doc.verification_status === 'CONFLICTED' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-rose-500/10 text-rose-400 border-rose-500/20'}`}>
+                                {doc.verification_status}
+                              </span>
+                            </td>
+                            <td className="py-3 px-3 text-right">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    const fullDoc = await api.getKnowledgeDocumentById(doc.id);
+                                    setSelectedDoc(fullDoc);
+                                  }}
+                                  className="px-2.5 py-1 rounded bg-dark-800 hover:bg-dark-750 text-brand-cyan hover:underline text-[11px] font-medium border border-dark-700 transition"
+                                >
+                                  Inspect Chunks
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteDoc(doc.id)}
+                                  className="p-1 rounded hover:bg-rose-500/10 text-slate-500 hover:text-rose-400 transition"
+                                  title="Delete Document"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Ingest Document Modal */}
+              {showIngestModal && (
+                <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="bg-dark-850 border border-dark-700 rounded-2xl max-w-xl w-full p-6 space-y-4 shadow-2xl animate-scaleUp max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between border-b border-dark-700 pb-3">
+                      <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                        <Plus className="w-4 h-4 text-brand-cyan" />
+                        Ingest Enterprise Knowledge Document
+                      </h3>
+                      <button
+                        onClick={() => setShowIngestModal(false)}
+                        className="p-1 rounded-lg hover:bg-dark-750 text-slate-400 hover:text-white"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleIngestDocument} className="space-y-3.5 text-xs">
+                      {ingestError && (
+                        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300">
+                          {ingestError}
+                        </div>
+                      )}
+
+                      <div>
+                        <label className="block text-slate-400 font-medium mb-1">Document Title</label>
+                        <input
+                          type="text"
+                          required
+                          value={ingestTitle}
+                          onChange={(e) => setIngestTitle(e.target.value)}
+                          placeholder="e.g. VIP Merchant Refund & Discount Policy"
+                          className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-cyan"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-slate-400 font-medium mb-1">Category</label>
+                          <select
+                            value={ingestCategory}
+                            onChange={(e) => setIngestCategory(e.target.value)}
+                            className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-xl text-white focus:outline-none focus:border-brand-cyan"
+                          >
+                            <option value="MERCHANT_POLICY">Merchant Policy</option>
+                            <option value="FAILURE_KNOWLEDGE">Failure Knowledge</option>
+                            <option value="RECOVERY_PLAYBOOK">Recovery Playbook</option>
+                            <option value="HISTORICAL_INSIGHT">Historical Insight</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-slate-400 font-medium mb-1">Source Type</label>
+                          <select
+                            value={ingestSourceType}
+                            onChange={(e) => setIngestSourceType(e.target.value)}
+                            className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-xl text-white focus:outline-none focus:border-brand-cyan"
+                          >
+                            <option value="POLICY">Policy</option>
+                            <option value="PLAYBOOK">Playbook</option>
+                            <option value="FAILURE_GUIDE">Failure Guide</option>
+                            <option value="HISTORICAL_REPORT">Historical Report</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 font-medium mb-1">Source Reference</label>
+                        <input
+                          type="text"
+                          required
+                          value={ingestSourceRef}
+                          onChange={(e) => setIngestSourceRef(e.target.value)}
+                          placeholder="e.g. merchant_ops_manual_v3"
+                          className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-cyan"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-slate-400 font-medium mb-1">Document Content (Markdown / Sections)</label>
+                        <textarea
+                          required
+                          rows={6}
+                          value={ingestContent}
+                          onChange={(e) => setIngestContent(e.target.value)}
+                          placeholder="# Document Title&#10;&#10;## Section Heading&#10;Rules, limits, and recovery guidance..."
+                          className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-xl text-white placeholder-slate-500 focus:outline-none focus:border-brand-cyan font-mono text-[11px]"
+                        />
+                      </div>
+
+                      {/* Prompt Injection Safety Indicator */}
+                      {/ignore\s+(all\s+)?(previous|prior)\s+instructions|system\s*override|disregard\s+guardrails/i.test(ingestContent) && (
+                        <div className="p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] flex items-center gap-2">
+                          <AlertOctagon className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>Sanitizer notice: Prompt override patterns detected. Ingestion pipeline will automatically neutralize these directives.</span>
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-end gap-2.5 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowIngestModal(false)}
+                          className="px-4 py-2 rounded-xl bg-dark-800 text-slate-400 hover:text-white font-medium"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={ingestSubmitting}
+                          className="px-5 py-2 rounded-xl bg-brand-cyan hover:bg-brand-cyan/90 text-dark-900 font-bold flex items-center gap-2 shadow-glow-cyan disabled:opacity-50"
+                        >
+                          {ingestSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+                          Chunk, Embed & Index
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* Document Chunks Inspector Modal */}
+              {selectedDoc && (
+                <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
+                  <div className="bg-dark-850 border border-dark-700 rounded-2xl max-w-2xl w-full p-6 space-y-4 shadow-2xl animate-scaleUp max-h-[90vh] overflow-y-auto">
+                    <div className="flex items-center justify-between border-b border-dark-700 pb-3">
+                      <div>
+                        <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                          <Layers className="w-4 h-4 text-emerald-400" />
+                          Document Chunks & 768-Dim Vector Embeddings
+                        </h3>
+                        <p className="text-[11px] text-slate-400">{selectedDoc.title} (ID: {selectedDoc.id})</p>
+                      </div>
+                      <button
+                        onClick={() => setSelectedDoc(null)}
+                        className="p-1 rounded-lg hover:bg-dark-750 text-slate-400 hover:text-white"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-3 text-xs">
+                      <div className="grid grid-cols-3 gap-2 p-3 bg-dark-800 rounded-xl border border-dark-750 text-[11px]">
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Category</span>
+                          <span className="font-bold text-white font-mono">{selectedDoc.category}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Total Chunks</span>
+                          <span className="font-bold text-emerald-400 font-mono">{selectedDoc.chunks?.length ?? 0}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block text-[10px]">Version</span>
+                          <span className="font-bold text-brand-cyan font-mono">v{selectedDoc.version}</span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <span className="text-slate-400 font-semibold block text-[11px]">Chunk Partitions:</span>
+                        {selectedDoc.chunks && selectedDoc.chunks.length > 0 ? (
+                          selectedDoc.chunks.map((chk) => (
+                            <div key={chk.id} className="p-3 rounded-xl bg-dark-900 border border-dark-750 space-y-1.5">
+                              <div className="flex items-center justify-between text-[11px]">
+                                <span className="font-bold text-white font-mono">
+                                  #{chk.chunk_index + 1}: {chk.heading}
+                                </span>
+                                <span className="text-[10px] text-slate-400 font-mono">
+                                  {chk.token_count} words · {chk.content.length} chars
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-300 font-mono bg-dark-850 p-2 rounded-lg border border-dark-750 whitespace-pre-wrap">
+                                {chk.content}
+                              </p>
+                              <span className="text-[9px] text-slate-500 font-mono block">
+                                ID: {chk.id} · SHA-256: {chk.content_hash.substring(0, 16)}...
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="py-6 text-center text-slate-500">No chunk breakdown available.</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* CASE EXPLAINABILITY DRAWER / MODAL */}
           {selectedCaseId && (
             <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
@@ -766,10 +1459,35 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
                     <p className="text-[11px] text-slate-400">Case ID: <span className="font-mono text-brand-cyan">{selectedCaseId}</span></p>
                   </div>
                   <button
-                    onClick={() => { setSelectedCaseId(null); setExplainability(null); }}
+                    onClick={() => { setSelectedCaseId(null); setExplainability(null); setCaseEvidence(null); }}
                     className="p-1 rounded-lg hover:bg-dark-750 text-slate-400 hover:text-white"
                   >
                     <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Explain Modal Sub-tabs */}
+                <div className="flex items-center gap-1 bg-dark-800 p-0.5 rounded-lg border border-dark-700 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setExplainModalTab('decision')}
+                    className={`px-3 py-1 rounded font-medium transition ${explainModalTab === 'decision' ? 'bg-brand-cyan text-dark-900 font-bold' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Decision Telemetry
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExplainModalTab('epistemic')}
+                    className={`px-3 py-1 rounded font-medium transition ${explainModalTab === 'epistemic' ? 'bg-brand-cyan text-dark-900 font-bold' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Epistemic Status
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setExplainModalTab('citations')}
+                    className={`px-3 py-1 rounded font-medium transition ${explainModalTab === 'citations' ? 'bg-brand-cyan text-dark-900 font-bold' : 'text-slate-400 hover:text-white'}`}
+                  >
+                    Knowledge Citations ({caseEvidence?.supporting_citations.length || 0})
                   </button>
                 </div>
 
@@ -796,61 +1514,147 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
                       </div>
                     </div>
 
-                    {/* Historical Evidence Cohort */}
-                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
-                        <span className="text-slate-400 block text-[10px]">Historical Cohort Sample Size</span>
-                        <span className="text-sm font-bold text-white font-mono">{explainability.historical_sample_size} cases</span>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">Wilson 95% CI: [{((explainability.confidence_interval_95?.[0] || 0) * 100).toFixed(1)}%, {((explainability.confidence_interval_95?.[1] || 0) * 100).toFixed(1)}%]</span>
-                      </div>
-                      <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
-                        <span className="text-slate-400 block text-[10px]">Baseline Empirical Base Rate</span>
-                        <span className="text-sm font-bold text-slate-300 font-mono">{(explainability.baseline_probability * 100).toFixed(1)}%</span>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">Uncertainty: {explainability.uncertainty_level}</span>
-                      </div>
-                    </div>
-
-                    {/* Guardrails Enforced */}
-                    {explainability.human_approval_required && (
-                      <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 flex items-start gap-2">
-                        <Shield className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                        <div>
-                          <strong className="text-white">Mandatory Human Authorization Required:</strong> {explainability.approval_reason}
+                    {/* TAB 1: DECISION TELEMETRY */}
+                    {explainModalTab === 'decision' && (
+                      <>
+                        {/* Historical Evidence Cohort */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
+                            <span className="text-slate-400 block text-[10px]">Historical Cohort Sample Size</span>
+                            <span className="text-sm font-bold text-white font-mono">{explainability.historical_sample_size} cases</span>
+                            <span className="text-[10px] text-slate-500 block mt-0.5">Wilson 95% CI: [{((explainability.confidence_interval_95?.[0] || 0) * 100).toFixed(1)}%, {((explainability.confidence_interval_95?.[1] || 0) * 100).toFixed(1)}%]</span>
+                          </div>
+                          <div className="p-3 rounded-xl bg-dark-800 border border-dark-700">
+                            <span className="text-slate-400 block text-[10px]">Baseline Empirical Base Rate</span>
+                            <span className="text-sm font-bold text-slate-300 font-mono">{(explainability.baseline_probability * 100).toFixed(1)}%</span>
+                            <span className="text-[10px] text-slate-500 block mt-0.5">Uncertainty: {explainability.uncertainty_level}</span>
+                          </div>
                         </div>
+
+                        {/* Guardrails Enforced */}
+                        {explainability.human_approval_required && (
+                          <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-300 flex items-start gap-2">
+                            <Shield className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                            <div>
+                              <strong className="text-white">Mandatory Human Authorization Required:</strong> {explainability.approval_reason}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Contributing & Risk Factors */}
+                        <div className="space-y-1.5">
+                          <h4 className="font-semibold text-slate-300">Decision Telemetry & Signals:</h4>
+                          <ul className="list-disc pl-4 space-y-1 text-slate-400 text-[11px]">
+                            {explainability.top_contributing_factors.map((f, i) => (
+                              <li key={i}><span className="text-emerald-400 font-medium">Positive Signal:</span> {f}</li>
+                            ))}
+                            {explainability.top_risk_factors.map((f, i) => (
+                              <li key={i}><span className="text-rose-400 font-medium">Risk Signal:</span> {f}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {/* Alternative Strategies Ranked */}
+                        {explainability.candidates_comparison && explainability.candidates_comparison.length > 0 && (
+                          <div className="space-y-1.5 pt-2">
+                            <h4 className="font-semibold text-slate-300">Alternative Strategies Evaluated:</h4>
+                            <div className="space-y-1.5">
+                              {explainability.candidates_comparison.slice(0, 4).map((cand) => (
+                                <div key={cand.strategy} className="p-2.5 rounded-lg bg-dark-800/80 border border-dark-750 flex items-center justify-between text-[11px]">
+                                  <div>
+                                    <span className="font-bold text-white font-mono">{cand.strategy.replace(/_/g, ' ')}</span>
+                                    <span className="text-slate-400 block text-[10px]">{cand.recommendation_reason}</span>
+                                  </div>
+                                  <div className="text-right shrink-0 ml-3">
+                                    <span className="font-mono text-brand-cyan font-bold">{(cand.estimated_probability * 100).toFixed(0)}%</span>
+                                    <span className="text-[9px] text-slate-500 block">n = {cand.sample_size}</span>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+
+                    {/* TAB 2: EPISTEMIC STATUS BREAKDOWN */}
+                    {explainModalTab === 'epistemic' && caseEvidence && (
+                      <div className="space-y-3">
+                        <div className="p-3 rounded-xl bg-dark-800 border border-dark-750 space-y-1">
+                          <span className="text-brand-cyan font-bold block text-[11px]">🛰️ Verified Telemetry Facts:</span>
+                          <ul className="list-disc pl-4 space-y-0.5 text-slate-300 text-[11px]">
+                            {caseEvidence.verified_facts.map((fact, idx) => (
+                              <li key={idx}>{fact}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        <div className="p-3 rounded-xl bg-dark-800 border border-dark-750 space-y-1">
+                          <span className="text-emerald-400 font-bold block text-[11px]">📜 Approved Merchant Policies:</span>
+                          <ul className="list-disc pl-4 space-y-0.5 text-slate-300 text-[11px]">
+                            {caseEvidence.approved_policies.map((pol, idx) => (
+                              <li key={idx}>{pol}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {caseEvidence.observed_statistics && (
+                          <div className="p-3 rounded-xl bg-dark-800 border border-dark-750 space-y-1">
+                            <span className="text-violet-400 font-bold block text-[11px]">📊 Observed Historical Statistics:</span>
+                            <div className="grid grid-cols-3 gap-2 pt-1 font-mono text-[11px]">
+                              <div>Cohort Size: <strong className="text-white">{caseEvidence.observed_statistics.cohort_sample_size}</strong></div>
+                              <div>Win Rate: <strong className="text-emerald-400">{((caseEvidence.observed_statistics.empirical_recovery_rate || 0) * 100).toFixed(1)}%</strong></div>
+                              <div>Recovered: <strong className="text-brand-cyan">{formatCurrency(caseEvidence.observed_statistics.mean_recovered_amount || 0)}</strong></div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="p-3 rounded-xl bg-dark-800 border border-dark-750 space-y-1">
+                          <span className="text-amber-400 font-bold block text-[11px]">🧠 AI Model Advisory Rationales:</span>
+                          <ul className="list-disc pl-4 space-y-0.5 text-slate-300 text-[11px]">
+                            {caseEvidence.ai_generated_rationales.map((rat, idx) => (
+                              <li key={idx}>{rat}</li>
+                            ))}
+                          </ul>
+                        </div>
+
+                        {caseEvidence.guardrails_enforced && caseEvidence.guardrails_enforced.length > 0 && (
+                          <div className="p-3 rounded-xl bg-dark-800 border border-dark-750 space-y-1">
+                            <span className="text-rose-400 font-bold block text-[11px]">🛡️ Authoritative Financial Guardrails Enforced:</span>
+                            <ul className="list-disc pl-4 space-y-0.5 text-slate-300 text-[11px]">
+                              {caseEvidence.guardrails_enforced.map((g, idx) => (
+                                <li key={idx}>{g}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     )}
 
-                    {/* Contributing & Risk Factors */}
-                    <div className="space-y-1.5">
-                      <h4 className="font-semibold text-slate-300">Decision Telemetry & Signals:</h4>
-                      <ul className="list-disc pl-4 space-y-1 text-slate-400 text-[11px]">
-                        {explainability.top_contributing_factors.map((f, i) => (
-                          <li key={i}><span className="text-emerald-400 font-medium">Positive Signal:</span> {f}</li>
-                        ))}
-                        {explainability.top_risk_factors.map((f, i) => (
-                          <li key={i}><span className="text-rose-400 font-medium">Risk Signal:</span> {f}</li>
-                        ))}
-                      </ul>
-                    </div>
-
-                    {/* Alternative Strategies Ranked */}
-                    {explainability.candidates_comparison && explainability.candidates_comparison.length > 0 && (
-                      <div className="space-y-1.5 pt-2">
-                        <h4 className="font-semibold text-slate-300">Alternative Strategies Evaluated:</h4>
-                        <div className="space-y-1.5">
-                          {explainability.candidates_comparison.slice(0, 4).map((cand) => (
-                            <div key={cand.strategy} className="p-2.5 rounded-lg bg-dark-800/80 border border-dark-750 flex items-center justify-between text-[11px]">
-                              <div>
-                                <span className="font-bold text-white font-mono">{cand.strategy.replace(/_/g, ' ')}</span>
-                                <span className="text-slate-400 block text-[10px]">{cand.recommendation_reason}</span>
+                    {/* TAB 3: KNOWLEDGE CITATIONS */}
+                    {explainModalTab === 'citations' && caseEvidence && (
+                      <div className="space-y-2.5">
+                        <span className="text-slate-400 font-semibold block text-[11px]">
+                          Grounding Evidence Passages from Verified Merchant Knowledge Base:
+                        </span>
+                        {caseEvidence.supporting_citations.length === 0 ? (
+                          <div className="py-6 text-center text-slate-500">No supporting citations linked to this case.</div>
+                        ) : (
+                          caseEvidence.supporting_citations.map((c, idx) => (
+                            <div key={idx} className="p-3 rounded-xl bg-dark-800 border border-dark-750 space-y-1 text-[11px]">
+                              <div className="flex items-center justify-between">
+                                <span className="font-bold text-white font-mono">{c.heading}</span>
+                                <span className="text-brand-cyan font-mono text-[10px]">Score: {c.combined_score.toFixed(3)}</span>
                               </div>
-                              <div className="text-right shrink-0 ml-3">
-                                <span className="font-mono text-brand-cyan font-bold">{(cand.estimated_probability * 100).toFixed(0)}%</span>
-                                <span className="text-[9px] text-slate-500 block">n = {cand.sample_size}</span>
-                              </div>
+                              <span className="text-[10px] text-slate-400 font-mono block">
+                                [Doc: {c.document_title}, Chunk: {c.chunk_id}]
+                              </span>
+                              <p className="text-slate-300 bg-dark-850 p-2 rounded border border-dark-700 font-sans">
+                                {c.content}
+                              </p>
                             </div>
-                          ))}
-                        </div>
+                          ))
+                        )}
                       </div>
                     )}
 

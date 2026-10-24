@@ -1,0 +1,98 @@
+{
+  "version": "1.0",
+  "benchmark_suite": "PayRecover AI RAG Evaluation",
+  "evaluation_date": "2026-10-24",
+  "test_cases": [
+    {
+      "id": "eval_001",
+      "query": "card decline 3DS authentication failure alternate payment method",
+      "target_category": "FAILURE_KNOWLEDGE",
+      "expected_document_ids": ["doc_fail_gateway"],
+      "expected_heading_substring": "Card Decline",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.40,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_002",
+      "query": "UPI timeout switch processing latency 15 minutes wait buffer",
+      "target_category": "FAILURE_KNOWLEDGE",
+      "expected_document_ids": ["doc_fail_gateway"],
+      "expected_heading_substring": "UPI Latency",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.40,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_003",
+      "query": "WhatsApp primary communication channel rules quiet hours 22:00",
+      "target_category": "MERCHANT_POLICY",
+      "expected_document_ids": ["doc_policy_bharattech"],
+      "expected_heading_substring": "Communication Channel",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.45,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_004",
+      "query": "maximum discount cap checkout abandonment 10 percent limit",
+      "target_category": "MERCHANT_POLICY",
+      "expected_document_ids": ["doc_policy_bharattech", "doc_play_recovery"],
+      "expected_heading_substring": "Discount",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.40,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_005",
+      "query": "stop recovery conditions customer cancellation fraud chargeback",
+      "target_category": "RECOVERY_PLAYBOOK",
+      "expected_document_ids": ["doc_play_recovery"],
+      "expected_heading_substring": "Stop Recovery",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.45,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_006",
+      "query": "high value threshold 50000 manual operator human approval",
+      "target_category": "RECOVERY_PLAYBOOK",
+      "expected_document_ids": ["doc_play_recovery", "doc_policy_bharattech"],
+      "expected_heading_substring": "High-Value",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.45,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_007",
+      "query": "card to UPI switch empirical recovery rate historical benchmark",
+      "target_category": "HISTORICAL_INSIGHT",
+      "expected_document_ids": ["doc_hist_insights"],
+      "expected_heading_substring": "Payment Method Recovery",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.40,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_008",
+      "query": "bank core server downtime 504 delay automated retries",
+      "target_category": "FAILURE_KNOWLEDGE",
+      "expected_document_ids": ["doc_fail_gateway"],
+      "expected_heading_substring": "Bank Core Server",
+      "expected_conflict": false,
+      "min_acceptable_score": 0.40,
+      "merchant_id": "merchant_primary"
+    },
+    {
+      "id": "eval_009",
+      "query": "quantum entanglement cryptographic warp core drive repair instructions",
+      "target_category": null,
+      "expected_document_ids": [],
+      "expected_heading_substring": null,
+      "expected_conflict": false,
+      "min_acceptable_score": 0.0,
+      "expect_insufficient": true,
+      "merchant_id": "merchant_primary"
+    }
+  ]
+}

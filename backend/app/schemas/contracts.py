@@ -820,3 +820,159 @@ class ExplainabilityResponse(BaseModel):
     decision_timestamp: datetime
 
 
+# -------------------------------------------------------------
+# PHASE 5 — RAG KNOWLEDGE ENGINE SCHEMAS
+# -------------------------------------------------------------
+
+class KnowledgeChunkItem(BaseModel):
+    id: str
+    document_id: str
+    chunk_index: int
+    heading: str
+    content: str
+    content_hash: str
+    token_count: int
+    chunk_metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeDocumentItem(BaseModel):
+    id: str
+    title: str
+    category: str
+    source_type: str
+    source_reference: str
+    merchant_id: Optional[str] = None
+    version: int
+    verification_status: str
+    effective_date: Optional[datetime] = None
+    expiration_date: Optional[datetime] = None
+    content_hash: str
+    raw_content: str
+    doc_metadata: Optional[Dict[str, Any]] = None
+    chunk_count: int = 0
+    chunks: Optional[List[KnowledgeChunkItem]] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class KnowledgeDocumentCreate(BaseModel):
+    title: str = Field(..., min_length=3, max_length=255)
+    category: str = Field(..., description="MERCHANT_POLICY | FAILURE_KNOWLEDGE | RECOVERY_PLAYBOOK | HISTORICAL_INSIGHT")
+    source_type: str = Field(..., description="POLICY | PLAYBOOK | FAILURE_GUIDE | HISTORICAL_REPORT")
+    source_reference: str = Field(..., min_length=2, max_length=255)
+    merchant_id: Optional[str] = Field(None, description="Optional tenant scoping. Null = global platform knowledge.")
+    raw_content: str = Field(..., min_length=10, description="Markdown or text content of the knowledge document.")
+    verification_status: Optional[str] = Field("VERIFIED", description="VERIFIED | DRAFT | DEPRECATED | CONFLICTED")
+    effective_date: Optional[datetime] = None
+    expiration_date: Optional[datetime] = None
+    doc_metadata: Optional[Dict[str, Any]] = None
+
+
+class KnowledgeDocumentUpdate(BaseModel):
+    title: Optional[str] = Field(None, min_length=3, max_length=255)
+    category: Optional[str] = None
+    source_type: Optional[str] = None
+    source_reference: Optional[str] = None
+    merchant_id: Optional[str] = None
+    raw_content: Optional[str] = Field(None, min_length=10)
+    verification_status: Optional[str] = None
+    effective_date: Optional[datetime] = None
+    expiration_date: Optional[datetime] = None
+    doc_metadata: Optional[Dict[str, Any]] = None
+
+
+class KnowledgeDocumentListResponse(BaseModel):
+    items: List[KnowledgeDocumentItem]
+    total: number if False else int
+    page: int
+    limit: int
+    total_pages: int
+    category_counts: Dict[str, int] = Field(default_factory=dict)
+
+
+class KnowledgeQueryRequest(BaseModel):
+    query: str = Field(..., min_length=2, max_length=1000)
+    category: Optional[str] = None
+    merchant_id: Optional[str] = None
+    limit: int = Field(5, ge=1, le=20)
+    relevance_threshold: float = Field(0.35, ge=0.0, le=1.0)
+
+
+class RetrievedPassage(BaseModel):
+    chunk_id: str
+    document_id: str
+    document_title: str
+    category: str
+    source_type: str
+    source_reference: str
+    merchant_id: Optional[str] = None
+    heading: str
+    content: str
+    similarity_score: float
+    lexical_score: float
+    combined_score: float
+    verification_status: str
+    version: int
+    is_merchant_specific: bool = False
+    retrieval_method: str = "hybrid"  # semantic | lexical | hybrid
+    detected_conflicts: List[str] = Field(default_factory=list)
+
+
+class KnowledgeQueryResponse(BaseModel):
+    query: str
+    total_retrieved: int
+    is_sufficient: bool
+    highest_score: float
+    passages: List[RetrievedPassage]
+    policy_conflicts_detected: List[str] = Field(default_factory=list)
+    latency_ms: int
+
+
+class EvidenceGroundedRecommendation(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    recovery_case_id: str
+    payment_id: str
+    recommended_strategy: str
+    recommendation_summary: str
+    reasoning_summary: str
+
+    # Epistemic distinctions
+    verified_facts: List[str] = Field(default_factory=list, description="Authoritative gateway telemetry")
+    approved_policies: List[str] = Field(default_factory=list, description="Active merchant policy citations")
+    observed_statistics: Optional[Dict[str, Any]] = Field(None, description="Empirical sample size & historical win rates")
+    probability_estimates: Optional[Dict[str, Any]] = Field(None, description="Calibrated model probabilities & Wilson CI")
+    ai_generated_rationales: List[str] = Field(default_factory=list, description="Model advisory reasoning")
+
+    # Supporting Citations
+    supporting_citations: List[RetrievedPassage] = Field(default_factory=list)
+    rejected_alternatives: List[Dict[str, str]] = Field(default_factory=list)
+    missing_evidence: List[str] = Field(default_factory=list)
+    evidence_sufficiency: str = "SUFFICIENT"  # SUFFICIENT | PARTIAL | INSUFFICIENT
+    policy_conflicts: List[str] = Field(default_factory=list)
+
+    # Deterministic Guardrails
+    guardrails_enforced: List[str] = Field(default_factory=list)
+    human_approval_required: bool = False
+    approval_reason: Optional[str] = None
+    created_at: datetime
+
+
+class RAGHealthResponse(BaseModel):
+    status: str
+    total_documents: int
+    total_chunks: int
+    category_distribution: Dict[str, int]
+    embedding_model: str
+    embedding_dimension: int
+    vector_search_mode: str
+    hybrid_ranking_active: bool
+    last_indexed_at: Optional[datetime] = None
+
+
+

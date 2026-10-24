@@ -414,3 +414,71 @@ class RecoveryOutcome(Base):
         Index("idx_outcome_method_amount", "payment_method", "amount_range"),
     )
 
+
+# -------------------------------------------------------------
+# PHASE 5 — RAG KNOWLEDGE ENGINE ENTITIES
+# -------------------------------------------------------------
+
+class KnowledgeCategory(str, enum.Enum):
+    MERCHANT_POLICY = "MERCHANT_POLICY"
+    FAILURE_KNOWLEDGE = "FAILURE_KNOWLEDGE"
+    RECOVERY_PLAYBOOK = "RECOVERY_PLAYBOOK"
+    HISTORICAL_INSIGHT = "HISTORICAL_INSIGHT"
+
+
+class VerificationStatus(str, enum.Enum):
+    VERIFIED = "VERIFIED"
+    DRAFT = "DRAFT"
+    DEPRECATED = "DEPRECATED"
+    CONFLICTED = "CONFLICTED"
+
+
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+
+    id = Column(String(50), primary_key=True, index=True)
+    title = Column(String(255), nullable=False)
+    category = Column(String(50), nullable=False, index=True)
+    source_type = Column(String(50), nullable=False, index=True)  # POLICY, PLAYBOOK, FAILURE_GUIDE, HISTORICAL_REPORT
+    source_reference = Column(String(255), nullable=False)
+    merchant_id = Column(String(50), ForeignKey("merchants.id"), nullable=True, index=True)  # Null = global platform knowledge
+    version = Column(Integer, default=1, nullable=False)
+    verification_status = Column(String(50), default=VerificationStatus.VERIFIED.value, nullable=False, index=True)
+    effective_date = Column(DateTime, nullable=True)
+    expiration_date = Column(DateTime, nullable=True)
+    content_hash = Column(String(64), nullable=False, index=True)
+    raw_content = Column(Text, nullable=False)
+    doc_metadata_json = Column(Text, nullable=True)  # JSON tags, author, approved_by, rules
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant")
+    chunks = relationship("KnowledgeChunk", back_populates="document", cascade="all, delete-orphan", order_by="KnowledgeChunk.chunk_index")
+
+    __table_args__ = (
+        Index("idx_kdoc_cat_verif", "category", "verification_status"),
+        Index("idx_kdoc_merchant_cat", "merchant_id", "category"),
+    )
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    id = Column(String(50), primary_key=True, index=True)
+    document_id = Column(String(50), ForeignKey("knowledge_documents.id"), nullable=False, index=True)
+    chunk_index = Column(Integer, nullable=False)
+    heading = Column(String(255), nullable=False)
+    content = Column(Text, nullable=False)
+    content_hash = Column(String(64), nullable=False)
+    embedding_json = Column(Text, nullable=False)  # Serialized 768-dim float vector
+    token_count = Column(Integer, default=0, nullable=False)
+    chunk_metadata_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    document = relationship("KnowledgeDocument", back_populates="chunks")
+
+    __table_args__ = (
+        Index("idx_kchunk_doc_index", "document_id", "chunk_index"),
+    )
+
+

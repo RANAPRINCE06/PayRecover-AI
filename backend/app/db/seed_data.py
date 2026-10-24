@@ -26,9 +26,14 @@ from app.models.entities import (
     UserRole,
     IdempotencyRecord,
     RecoveryOutcome,
-    RecoveryOutcomeStatus
+    RecoveryOutcomeStatus,
+    KnowledgeDocument,
+    KnowledgeChunk,
+    KnowledgeCategory,
+    VerificationStatus
 )
 from app.services.intelligence_service import amount_to_range, normalize_strategy_name
+from app.services.ingestion_service import ingestion_service
 
 
 def seed_database(db: Session = None):
@@ -46,8 +51,9 @@ def seed_database(db: Session = None):
 
         # Check if already seeded
         if db.query(Customer).count() >= 30:
-            print("[SEED] Database already contains sufficient seed data. Ensuring recovery outcomes are synchronized.")
+            print("[SEED] Database already contains sufficient seed data. Ensuring recovery outcomes and knowledge docs are synchronized.")
             _seed_recovery_outcomes(db)
+            _seed_knowledge_documents(db)
             return
 
         print("[SEED] Starting comprehensive seed generation for PayRecover AI...")
@@ -539,6 +545,135 @@ def _seed_recovery_outcomes(db: Session):
     if count > 0:
         db.commit()
         print(f"[SEED] Synchronized {count} RecoveryOutcome records for AI Intelligence Engine.")
+
+
+def _seed_knowledge_documents(db: Session):
+    """
+    Seeds initial enterprise knowledge base across 4 categories:
+    MERCHANT_POLICY, FAILURE_KNOWLEDGE, RECOVERY_PLAYBOOK, HISTORICAL_INSIGHT.
+    Uses DocumentIngestionService to generate chunks and embeddings.
+    """
+    docs_to_seed = [
+        {
+            "custom_id": "doc_policy_bharattech",
+            "title": "BharatTech Merchant Recovery Policy & Guardrails",
+            "category": KnowledgeCategory.MERCHANT_POLICY.value,
+            "source_type": "POLICY",
+            "source_reference": "merchant_ops_manual_v2.4",
+            "merchant_id": "merchant_primary",
+            "verification_status": VerificationStatus.VERIFIED.value,
+            "raw_content": """# BharatTech Commerce Recovery Policy
+
+## Communication Channel Rules
+BharatTech authorizes WhatsApp as the primary recovery channel for standard transactions under ₹50,000. Email is approved as a secondary notification channel for order confirmation and high-value recovery cases. SMS is designated strictly as an emergency fallback. Voice calls are explicitly prohibited unless requested by the customer.
+
+## Retry Timing and Limits
+Automated payment retries must not exceed 3 attempts per recovery case. Retries must enforce an exponential backoff schedule with a mandatory minimum 4-hour delay between automated execution attempts. Immediate synchronous retries on card declines are prohibited.
+
+## Discount and Incentive Limits
+Promotional conversion incentives are capped at a maximum of 10% discount. Discounts may only be offered for checkout abandonment cases where customer intent exhibits price sensitivity. Under no circumstances may discounts be applied to transactions exceeding ₹50,000 or to subscription renewal payments.
+
+## High-Value Escalation and Human Review
+Any recovery case with transaction amount equal to or exceeding ₹50,000 is classified as high-value. Automated tool execution is blocked until explicit human approval is granted by an authorized merchant operator or admin. The recovery status must remain AWAITING_HUMAN_APPROVAL until approved.
+
+## Quiet Hours Enforcement
+Merchant quiet hours are strictly enforced between 22:00 IST and 08:00 IST. No outbound customer messages or push notifications may be dispatched during quiet hours. Scheduled recovery actions must be delayed until the quiet hours window closes at 08:00 IST."""
+        },
+        {
+            "custom_id": "doc_fail_gateway",
+            "title": "Payment Gateway Failure Troubleshooting & Recovery Guide",
+            "category": KnowledgeCategory.FAILURE_KNOWLEDGE.value,
+            "source_type": "FAILURE_GUIDE",
+            "source_reference": "gateway_engineering_spec_v3",
+            "merchant_id": None,  # Global platform knowledge
+            "verification_status": VerificationStatus.VERIFIED.value,
+            "raw_content": """# Payment Gateway Failure Troubleshooting
+
+## UPI Latency and Timeout Handling
+UPI timeouts occur when NPCI switch processing exceeds bank response thresholds (typically 30 seconds), or when customer UPI apps fail to prompt. Immediate re-attempts against the same VPA have a 78% failure rate during active bank degraded performance. The optimal strategy is waiting 15 minutes before dispatching an instant pre-filled UPI payment link (rzp.io) via WhatsApp.
+
+## Card Decline Root Causes
+Card declines fall into three distinct sub-categories:
+1. Do Not Honor (bank block / fraud filter): Issuing bank has blocked the card. Direct retries against the same card will consistently fail and risk blacklisting. The mandatory remedy is offering an alternate payment method (UPI, NetBanking, or alternate card).
+2. Insufficient Funds: The cardholder balance is inadequate. Retrying within 24 hours has a dismal 12% recovery rate. Schedule a gentle follow-up reminder after payday or provide a payment link valid for 72 hours.
+3. 3DS Authentication Failure: OTP expired or mobile network drop. The customer had purchase intent. An instant payment link sent via WhatsApp recovers over 85% of these transactions within 10 minutes.
+
+## Bank Core Server Downtime
+Gateway HTTP 504 and Bank Server Down errors indicate transient outages at the acquiring or issuing bank. The recommended action is delaying automated retries by 30 to 45 minutes or routing through an alternate gateway route if available."""
+        },
+        {
+            "custom_id": "doc_play_recovery",
+            "title": "Autonomous Revenue Recovery Playbooks & Stop Conditions",
+            "category": KnowledgeCategory.RECOVERY_PLAYBOOK.value,
+            "source_type": "PLAYBOOK",
+            "source_reference": "playrecover_playbooks_v1.8",
+            "merchant_id": None,  # Global platform knowledge
+            "verification_status": VerificationStatus.VERIFIED.value,
+            "raw_content": """# Autonomous Revenue Recovery Playbooks
+
+## Playbook 1: Card Decline to UPI Instant Link
+When a customer experiences a card decline (either 3DS failure or temporary decline) and customer intent indicates ongoing purchase interest, the autonomous engine must generate a pre-filled Razorpay UPI payment link. The link should be dispatched via WhatsApp with an informative, helpful notification explaining that the card was declined by their bank.
+
+## Playbook 2: High-Value Recovery Workflow
+For transactions exceeding the merchant high-value threshold (₹50,000), the engine must NOT auto-dispatch payment links or retries. Instead, it creates a pending HumanApproval record, notifies the merchant operator console, and prepares a tailored high-touch communication draft.
+
+## Playbook 3: Checkout Abandonment Incentive Playbook
+When telemetry indicates checkout abandonment with hesitation, and customer profile reflects high lifetime value (VIP or HIGH_VALUE), the engine is authorized to formulate an INCENTIVE strategy offering up to 10% discount to secure immediate conversion.
+
+## Playbook 4: Stop Recovery Conditions
+Recovery must immediately cease under any of the following stop conditions:
+1. Customer explicitly indicates cancellation, lack of interest, or requests not to be contacted.
+2. Payment state verification confirms the order was already paid or captured through another session.
+3. Maximum retry count (3 attempts) has been exhausted.
+4. Suspected fraudulent activity or chargeback threat reported."""
+        },
+        {
+            "custom_id": "doc_hist_insights",
+            "title": "Empirical Recovery Outcomes & Conversion Benchmarks",
+            "category": KnowledgeCategory.HISTORICAL_INSIGHT.value,
+            "source_type": "HISTORICAL_REPORT",
+            "source_reference": "payrecover_quarterly_intelligence_q3",
+            "merchant_id": "merchant_primary",
+            "verification_status": VerificationStatus.VERIFIED.value,
+            "raw_content": """# Verified Recovery Outcomes & Intelligence Benchmarks
+
+## Payment Method Recovery Rates
+Analysis of historical recovery cases demonstrates:
+- Card-to-UPI switch strategies achieve an empirical 92.3% recovery rate (n=65, 95% Wilson CI: [83.2%, 96.7%]).
+- Direct payment retries for insufficient funds achieve only 11.8% success (n=34), while offering a payment link with flexible timing increases conversion to 64.7%.
+- Immediate UPI retries after timeout fail in 78.4% of cases; introducing a 15-minute buffer increases recovery to 88.1%.
+
+## Communication Channel Effectiveness
+- WhatsApp messages dispatched within 15 minutes of payment failure achieve a 71.4% click-through rate and 62.8% settlement within 2 hours.
+- Email recovery notices achieve a 22.1% open rate and 18.5% recovery rate over 24 hours.
+- SMS notifications show diminishing returns with a 9.2% recovery rate.
+
+## Recovery Latency Benchmarks
+The median time-to-recovery (TTR) for successful automated recovery is 18.4 minutes. Cases resolved within 30 minutes account for 84% of total recovered revenue."""
+        }
+    ]
+
+    indexed_count = 0
+    for doc_data in docs_to_seed:
+        existing = db.query(KnowledgeDocument).filter(
+            KnowledgeDocument.id == doc_data["custom_id"]
+        ).first()
+        if not existing:
+            ingestion_service.ingest_document(
+                db=db,
+                title=doc_data["title"],
+                category=doc_data["category"],
+                source_type=doc_data["source_type"],
+                source_reference=doc_data["source_reference"],
+                raw_content=doc_data["raw_content"],
+                merchant_id=doc_data["merchant_id"],
+                verification_status=doc_data["verification_status"],
+                custom_id=doc_data["custom_id"]
+            )
+            indexed_count += 1
+
+    if indexed_count > 0:
+        print(f"[SEED] Ingested and indexed {indexed_count} initial RAG knowledge documents.")
 
 
 def reset_demo_data(db: Session = None):
