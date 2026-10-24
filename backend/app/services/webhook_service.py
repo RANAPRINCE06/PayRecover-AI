@@ -371,6 +371,18 @@ class WebhookService:
                 # Clear dashboard cache
                 redis_service.delete("dashboard:metrics")
 
+                # Phase 4: Record verified recovery outcome
+                try:
+                    from app.services.intelligence_service import outcome_service
+                    outcome_service.record_verified_outcome(
+                        db=db,
+                        recovery_case_id=payment.recovery_case.id,
+                        verification_source=f"razorpay_webhook:{event.provider_event_id or event.id}",
+                        outcome_time=datetime.utcnow()
+                    )
+                except Exception as out_err:
+                    logger.warning(f"[WebhookHandler] Error updating outcome record: {out_err}")
+
     @classmethod
     def _handle_payment_link_paid(cls, db: Session, event: WebhookEvent, payload: Dict[str, Any]) -> None:
         """Handle payment_link.paid: autonomous resolution via customer payment link."""
@@ -425,6 +437,18 @@ class WebhookService:
                 )
                 redis_service.delete("dashboard:metrics")
 
+                # Phase 4: Record verified recovery outcome
+                try:
+                    from app.services.intelligence_service import outcome_service
+                    outcome_service.record_verified_outcome(
+                        db=db,
+                        recovery_case_id=case.id,
+                        verification_source=f"razorpay_payment_link:{link_entity.get('id', 'unknown')}",
+                        outcome_time=datetime.utcnow()
+                    )
+                except Exception as out_err:
+                    logger.warning(f"[WebhookHandler] Error updating outcome record for link paid: {out_err}")
+
     @classmethod
     def _handle_payment_link_expired(cls, db: Session, event: WebhookEvent, payload: Dict[str, Any]) -> None:
         """Handle payment_link.expired."""
@@ -438,6 +462,18 @@ class WebhookService:
             if case and case.status not in (RecoveryStatus.RECOVERED.value, RecoveryStatus.FAILED.value):
                 case.status = RecoveryStatus.EXPIRED.value
                 db.commit()
+
+                # Phase 4: Record unsuccessful recovery outcome on expiration
+                try:
+                    from app.services.intelligence_service import outcome_service
+                    outcome_service.record_verified_outcome(
+                        db=db,
+                        recovery_case_id=case.id,
+                        verification_source=f"razorpay_payment_link_expired:{link_entity.get('id', 'unknown')}",
+                        outcome_time=datetime.utcnow()
+                    )
+                except Exception as out_err:
+                    logger.warning(f"[WebhookHandler] Error updating outcome record for expired link: {out_err}")
                 event.internal_case_id = case.id
 
     @classmethod

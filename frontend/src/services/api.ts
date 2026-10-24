@@ -31,7 +31,12 @@ import {
   AIOperationsMetrics,
   WebhookEventItem,
   WebhookEventListResponse,
-  WebhookHealth
+  WebhookHealth,
+  OutcomeRecordListResponse,
+  OutcomeSummaryStats,
+  StrategyEvaluationResponse,
+  ExplainabilityResponse,
+  CalibrationMetrics
 } from '../types';
 
 const API_BASE = '/api';
@@ -313,5 +318,29 @@ export const api = {
     request<{ status: string; stale_events_recovered: number; retries_processed: number }>(
       `/webhooks/sweep?stale_threshold_seconds=${staleThresholdSeconds}&batch_size=${batchSize}`,
       { method: 'POST' }
-    )
+    ),
+
+  // ─── Phase 4: AI Recovery Intelligence Engine ───────────────────
+  getRecoveryOutcomes: (page = 1, limit = 20, status?: string, failureCategory?: string, strategy?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) params.append('status', status);
+    if (failureCategory) params.append('failure_category', failureCategory);
+    if (strategy) params.append('strategy', strategy);
+    return request<OutcomeRecordListResponse>(`/intelligence/outcomes?${params.toString()}`);
+  },
+
+  getOutcomesSummary: () =>
+    request<OutcomeSummaryStats>('/intelligence/outcomes/summary'),
+
+  getStrategyEvaluation: (caseId: string) =>
+    request<StrategyEvaluationResponse>(`/intelligence/evaluate/${caseId}`),
+
+  getCaseExplainability: (caseId: string) =>
+    request<ExplainabilityResponse>(`/intelligence/explain/${caseId}`),
+
+  getCalibrationMetrics: () =>
+    request<CalibrationMetrics>('/intelligence/calibration'),
+
+  recalibrateModel: () =>
+    request<CalibrationMetrics>('/intelligence/recalibrate', { method: 'POST' })
 };

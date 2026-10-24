@@ -16,6 +16,7 @@ from app.api.auth import router as auth_router
 from app.api.users import router as users_router
 from app.api.events import router as events_router
 from app.api.webhooks import router as webhooks_router
+from app.api.intelligence import router as intelligence_router
 
 # Setup logging
 logging.basicConfig(
@@ -87,6 +88,7 @@ app.include_router(webhooks_router, prefix="/api/webhooks")
 app.include_router(api_router, prefix="/api")
 app.include_router(analytics_router, prefix="/api/analytics")
 app.include_router(system_router, prefix="/api/system")
+app.include_router(intelligence_router)
 
 
 @app.get("/")

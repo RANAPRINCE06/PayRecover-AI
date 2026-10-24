@@ -45,6 +45,13 @@ class WebhookEventStatus(str, enum.Enum):
     DEAD_LETTER = "DEAD_LETTER"
 
 
+class RecoveryOutcomeStatus(str, enum.Enum):
+    RECOVERED = "RECOVERED"
+    UNSUCCESSFUL = "UNSUCCESSFUL"
+    PENDING = "PENDING"
+    UNKNOWN = "UNKNOWN"
+
+
 class PaymentMethod(str, enum.Enum):
     UPI = "UPI"
     CARD = "CARD"
@@ -159,6 +166,7 @@ class Payment(Base):
 
     customer = relationship("Customer", back_populates="payments")
     recovery_case = relationship("RecoveryCase", back_populates="payment", uselist=False)
+    outcome = relationship("RecoveryOutcome", back_populates="payment", uselist=False)
 
     __table_args__ = (
         Index("idx_payment_status_created", "status", "created_at"),
@@ -188,6 +196,7 @@ class RecoveryCase(Base):
     interactions = relationship("CustomerInteraction", back_populates="recovery_case", order_by="CustomerInteraction.created_at")
     tool_executions = relationship("ToolExecution", back_populates="recovery_case", order_by="ToolExecution.created_at")
     approvals = relationship("HumanApproval", back_populates="recovery_case", order_by="HumanApproval.created_at")
+    outcome = relationship("RecoveryOutcome", back_populates="recovery_case", uselist=False)
 
     __table_args__ = (
         Index("idx_case_status_started", "status", "started_at"),
@@ -355,5 +364,53 @@ class WebhookEvent(Base):
     __table_args__ = (
         Index("idx_webhook_status_retry", "status", "next_retry_at"),
         Index("idx_webhook_type_received", "event_type", "received_at"),
+    )
+
+
+# 13. Recovery Outcome (Phase 4 AI Recovery Intelligence & Historical Engine)
+class RecoveryOutcome(Base):
+    __tablename__ = "recovery_outcomes"
+
+    id = Column(String(50), primary_key=True, index=True)
+    recovery_case_id = Column(String(50), ForeignKey("recovery_cases.id"), unique=True, nullable=False, index=True)
+    payment_id = Column(String(50), ForeignKey("payments.id"), nullable=False, index=True)
+    customer_id = Column(String(50), ForeignKey("customers.id"), nullable=False, index=True)
+
+    # Failure & Transaction telemetry
+    failure_category = Column(String(100), nullable=False, index=True)
+    payment_method = Column(String(50), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    amount_range = Column(String(50), nullable=False, index=True)  # "<1000", "1000-5000", "5000-25000", ">25000"
+    customer_intent = Column(String(100), nullable=True, index=True)
+
+    # Strategy & Decision parameters
+    selected_strategy = Column(String(100), nullable=False, index=True)
+    communication_channel = Column(String(50), nullable=False, default="WHATSAPP")
+    retry_count = Column(Integer, default=0, nullable=False)
+    discount_offered_percent = Column(Float, default=0.0, nullable=False)
+    human_approval_required = Column(Boolean, default=False, nullable=False)
+    processing_latency_ms = Column(Integer, default=0, nullable=False)
+
+    # Verified outcome
+    outcome_status = Column(String(50), default=RecoveryOutcomeStatus.PENDING.value, nullable=False, index=True)
+    recovered_amount = Column(Float, default=0.0, nullable=False)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    verification_source = Column(String(150), nullable=True)  # e.g., "razorpay_webhook:whe_..."
+    time_to_recovery_seconds = Column(Float, nullable=True)
+
+    # Temporal tracking (Prevents data leakage in intelligence models)
+    decision_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    outcome_timestamp = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    recovery_case = relationship("RecoveryCase", back_populates="outcome")
+    payment = relationship("Payment", back_populates="outcome")
+    customer = relationship("Customer")
+
+    __table_args__ = (
+        Index("idx_outcome_status_decision", "outcome_status", "decision_timestamp"),
+        Index("idx_outcome_strategy_failure", "selected_strategy", "failure_category"),
+        Index("idx_outcome_method_amount", "payment_method", "amount_range"),
     )
 

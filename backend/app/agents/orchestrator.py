@@ -117,11 +117,26 @@ class RecoveryOrchestrator:
             reasoning=f"Detected intent '{detected_intent.intent}' with {int(detected_intent.confidence*100)}% confidence ({detected_intent.sentiment} sentiment)."
         )
 
-        # Step 3: Strategy Formulation
+        # Step 3: Strategy Formulation & Decision Recording
         strategy = strategist_agent.formulate_strategy(investigation, payment)
         recovery_case.current_strategy = strategy.strategy
         recovery_case.status = RecoveryStatus.STRATEGY_SELECTED.value
         db.commit()
+
+        # Phase 4: Record recovery decision in outcome engine
+        try:
+            from app.services.intelligence_service import outcome_service
+            outcome_service.record_or_update_decision(
+                db=db,
+                recovery_case=recovery_case,
+                selected_strategy=strategy.strategy,
+                communication_channel=strategy.recommended_channel,
+                discount_offered_percent=strategy.discount_percentage,
+                human_approval_required=strategy.escalate_to_human,
+                decision_timestamp=datetime.utcnow()
+            )
+        except Exception as out_err:
+            logger.warning(f"Failed recording decision outcome in legacy pipeline: {out_err}")
 
         # Log Strategist Action
         tool_executor.execute_action(
@@ -298,22 +313,61 @@ class RecoveryOrchestrator:
             ))
             return _fail(f"Pipeline aborted at INTENT stage: {e}")
 
-        # ── STAGE 2: STRATEGY ──────────────────────────────────────────
+        # ── STAGE 2: STRATEGY & RECOVERY INTELLIGENCE ───────────────────
         s2_start = datetime.utcnow()
         try:
+            from app.services.intelligence_service import (
+                strategy_evaluation_engine,
+                outcome_service,
+                normalize_strategy_name
+            )
+
+            # Evaluate candidates with historical evidence & calibrated probability
+            eval_response = strategy_evaluation_engine.evaluate_candidates(
+                db=db,
+                payment=payment,
+                recovery_case=case,
+                customer_intent=detected_intent.intent,
+                as_of_time=s2_start
+            )
+
             strategy = strategist_agent.formulate_strategy(investigation, payment)
+            # If evaluation engine recommended an eligible higher-confidence strategy, align strategy
+            if eval_response.recommended_strategy:
+                strategy.strategy = eval_response.recommended_strategy
+                strategy.expected_recovery_probability = eval_response.calibrated_probability
+
             case.current_strategy = strategy.strategy
+            case.recovery_probability = strategy.expected_recovery_probability
             case.status = RecoveryStatus.STRATEGY_SELECTED.value
             db.commit()
+
+            # Record initial recovery decision in outcome engine
+            outcome_service.record_or_update_decision(
+                db=db,
+                recovery_case=case,
+                selected_strategy=strategy.strategy,
+                communication_channel=strategy.recommended_channel,
+                discount_offered_percent=strategy.discount_percentage,
+                human_approval_required=strategy.escalate_to_human,
+                processing_latency_ms=int((datetime.utcnow() - s2_start).total_seconds() * 1000),
+                decision_timestamp=s2_start
+            )
+
             steps.append(_make_step(
                 2, "STRATEGY", "STRATEGIST",
                 AutonomousPipelineStepStatus.SUCCESS.value,
-                f"Strategy '{strategy.strategy}' selected — {int(strategy.expected_recovery_probability*100)}% expected recovery.",
+                f"Strategy '{strategy.strategy}' selected ({int(strategy.expected_recovery_probability*100)}% calibrated prob, "
+                f"cohort size {eval_response.sample_size_total}). {eval_response.candidates[0].recommendation_reason if eval_response.candidates else ''}",
                 s2_start,
                 output={
                     "strategy": strategy.strategy,
                     "priority": strategy.priority,
-                    "expected_recovery_probability": strategy.expected_recovery_probability,
+                    "calibrated_probability": eval_response.calibrated_probability,
+                    "baseline_probability": eval_response.baseline_probability,
+                    "uncertainty_level": eval_response.uncertainty_level,
+                    "sample_size_evaluated": eval_response.sample_size_total,
+                    "candidates_count": len(eval_response.candidates),
                     "create_payment_link": strategy.create_payment_link,
                     "offer_discount": strategy.offer_discount,
                     "discount_percentage": strategy.discount_percentage,

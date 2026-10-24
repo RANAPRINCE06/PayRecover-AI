@@ -678,3 +678,145 @@ class WebhookHealthResponse(BaseModel):
     mode: str
 
 
+# -------------------------------------------------------------
+# PHASE 4 — AI RECOVERY INTELLIGENCE & HISTORICAL ENGINE SCHEMAS
+# -------------------------------------------------------------
+
+class OutcomeStatusType(str, Enum):
+    RECOVERED = "RECOVERED"
+    UNSUCCESSFUL = "UNSUCCESSFUL"
+    PENDING = "PENDING"
+    UNKNOWN = "UNKNOWN"
+
+
+class OutcomeRecordResponse(BaseModel):
+    id: str
+    recovery_case_id: str
+    payment_id: str
+    customer_id: str
+    failure_category: str
+    payment_method: str
+    amount: float
+    amount_range: str
+    customer_intent: Optional[str] = None
+    selected_strategy: str
+    communication_channel: str
+    retry_count: int
+    discount_offered_percent: float
+    human_approval_required: bool
+    processing_latency_ms: int
+    outcome_status: str
+    recovered_amount: float
+    is_verified: bool
+    verification_source: Optional[str] = None
+    time_to_recovery_seconds: Optional[float] = None
+    decision_timestamp: datetime
+    outcome_timestamp: Optional[datetime] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class OutcomeRecordListResponse(BaseModel):
+    items: List[OutcomeRecordResponse]
+    total: int
+    page: int
+    limit: int
+    total_pages: int
+    verified_recovered_count: int
+    total_recovered_amount: float
+
+
+class OutcomeSummaryStats(BaseModel):
+    total_attempts: int
+    verified_recovered: int
+    unsuccessful: int
+    pending: int
+    unknown: int
+    recovery_rate_observed: float
+    total_amount_recovered: float
+    average_time_to_recovery_sec: float
+    sample_size_evaluated: int
+
+
+class StrategyCandidateEvaluation(BaseModel):
+    strategy: str
+    is_eligible: bool
+    rank: int
+    observed_recovery_rate: Optional[float] = None
+    sample_size: int
+    recovered_count: int
+    unsuccessful_count: int
+    confidence_interval_95: List[float] = Field(default_factory=lambda: [0.0, 0.0])
+    laplace_smoothed_rate: float
+    estimated_probability: float
+    uncertainty_level: str  # "INSUFFICIENT_DATA" | "HIGH_UNCERTAINTY" | "MODERATE" | "LOW_UNCERTAINTY"
+    recommendation_reason: str
+    alternative_reasons: List[str] = Field(default_factory=list)
+    guardrail_overrides: List[str] = Field(default_factory=list)
+
+
+class StrategyEvaluationResponse(BaseModel):
+    recovery_case_id: str
+    payment_id: str
+    failure_category: str
+    payment_method: str
+    amount: float
+    amount_range: str
+    customer_intent: Optional[str] = None
+    recommended_strategy: str
+    calibrated_probability: float
+    baseline_probability: float
+    uncertainty_level: str
+    sample_size_total: int
+    evaluation_timestamp: datetime
+    candidates: List[StrategyCandidateEvaluation]
+    guardrail_applied: bool
+    guardrail_details: List[str] = Field(default_factory=list)
+    data_limitations_warning: Optional[str] = None
+
+
+class CalibrationMetricsResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    sample_size_total: int
+    sample_size_labeled: int
+    recovered_count: int
+    unsuccessful_count: int
+    baseline_recovery_rate: float
+    baseline_brier_score: float
+    model_brier_score: float
+    brier_skill_score: float
+    roc_auc: Optional[float] = None
+    expected_calibration_error: Optional[float] = None
+    train_sample_size: int
+    test_sample_size: int
+    data_quality_status: str
+    model_version: str
+    limitations: List[str] = Field(default_factory=list)
+    evaluation_timestamp: datetime
+
+
+class ExplainabilityResponse(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    recovery_case_id: str
+    payment_id: str
+    recommended_strategy: str
+    calibrated_probability: float
+    baseline_probability: float
+    historical_sample_size: int
+    observed_historical_rate: Optional[float] = None
+    confidence_interval_95: List[float] = Field(default_factory=lambda: [0.0, 0.0])
+    uncertainty_level: str
+    top_contributing_factors: List[str] = Field(default_factory=list)
+    top_risk_factors: List[str] = Field(default_factory=list)
+    guardrails_active: List[str] = Field(default_factory=list)
+    human_approval_required: bool
+    approval_reason: Optional[str] = None
+    candidates_comparison: List[StrategyCandidateEvaluation]
+    model_version: str
+    methodology_disclaimer: str
+    decision_timestamp: datetime
+
+

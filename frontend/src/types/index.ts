@@ -785,3 +785,132 @@ export interface WebhookHealth {
   mode: string;
 }
 
+// -------------------------------------------------------------
+// PHASE 4 — RECOVERY INTELLIGENCE & HISTORICAL ENGINE
+// -------------------------------------------------------------
+
+export interface OutcomeRecordItem {
+  id: string;
+  recovery_case_id: string;
+  payment_id: string;
+  customer_id: string;
+  failure_category: string;
+  payment_method: string;
+  amount: number;
+  amount_range: string;
+  customer_intent?: string | null;
+  selected_strategy: string;
+  communication_channel: string;
+  retry_count: number;
+  discount_offered_percent: number;
+  human_approval_required: boolean;
+  processing_latency_ms: number;
+  outcome_status: 'RECOVERED' | 'UNSUCCESSFUL' | 'PENDING' | 'UNKNOWN';
+  recovered_amount: number;
+  is_verified: boolean;
+  verification_source?: string | null;
+  time_to_recovery_seconds?: number | null;
+  decision_timestamp: string;
+  outcome_timestamp?: string | null;
+  created_at: string;
+}
+
+export interface OutcomeRecordListResponse {
+  items: OutcomeRecordItem[];
+  total: number;
+  page: number;
+  limit: number;
+  total_pages: number;
+  verified_recovered_count: number;
+  total_recovered_amount: number;
+}
+
+export interface OutcomeSummaryStats {
+  total_attempts: number;
+  verified_recovered: number;
+  unsuccessful: number;
+  pending: number;
+  unknown: number;
+  recovery_rate_observed: number;
+  total_amount_recovered: number;
+  average_time_to_recovery_sec: number;
+  sample_size_evaluated: number;
+}
+
+export interface StrategyCandidateEvaluation {
+  strategy: string;
+  is_eligible: boolean;
+  rank: number;
+  observed_recovery_rate: number | null;
+  sample_size: number;
+  recovered_count: number;
+  unsuccessful_count: number;
+  confidence_interval_95: [number, number];
+  laplace_smoothed_rate: number;
+  estimated_probability: number;
+  uncertainty_level: 'INSUFFICIENT_DATA' | 'HIGH_UNCERTAINTY' | 'MODERATE' | 'LOW_UNCERTAINTY';
+  recommendation_reason: string;
+  alternative_reasons: string[];
+  guardrail_overrides: string[];
+}
+
+export interface StrategyEvaluationResponse {
+  recovery_case_id: string;
+  payment_id: string;
+  failure_category: string;
+  payment_method: string;
+  amount: number;
+  amount_range: string;
+  customer_intent?: string | null;
+  recommended_strategy: string;
+  calibrated_probability: number;
+  baseline_probability: number;
+  uncertainty_level: string;
+  sample_size_total: number;
+  evaluation_timestamp: string;
+  candidates: StrategyCandidateEvaluation[];
+  guardrail_applied: boolean;
+  guardrail_details: string[];
+  data_limitations_warning?: string | null;
+}
+
+export interface CalibrationMetrics {
+  sample_size_total: number;
+  sample_size_labeled: number;
+  recovered_count: number;
+  unsuccessful_count: number;
+  baseline_recovery_rate: number;
+  baseline_brier_score: number;
+  model_brier_score: number;
+  brier_skill_score: number;
+  roc_auc: number | null;
+  expected_calibration_error: number | null;
+  train_sample_size: number;
+  test_sample_size: number;
+  data_quality_status: string;
+  model_version: string;
+  limitations: string[];
+  evaluation_timestamp: string;
+}
+
+export interface ExplainabilityResponse {
+  recovery_case_id: string;
+  payment_id: string;
+  recommended_strategy: string;
+  calibrated_probability: number;
+  baseline_probability: number;
+  historical_sample_size: number;
+  observed_historical_rate: number | null;
+  confidence_interval_95: [number, number];
+  uncertainty_level: string;
+  top_contributing_factors: string[];
+  top_risk_factors: string[];
+  guardrails_active: string[];
+  human_approval_required: boolean;
+  approval_reason?: string | null;
+  candidates_comparison: StrategyCandidateEvaluation[];
+  model_version: string;
+  methodology_disclaimer: string;
+  decision_timestamp: string;
+}
+

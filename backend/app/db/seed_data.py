@@ -24,8 +24,11 @@ from app.models.entities import (
     InteractionDirection,
     User,
     UserRole,
-    IdempotencyRecord
+    IdempotencyRecord,
+    RecoveryOutcome,
+    RecoveryOutcomeStatus
 )
+from app.services.intelligence_service import amount_to_range, normalize_strategy_name
 
 
 def seed_database(db: Session = None):
@@ -43,7 +46,8 @@ def seed_database(db: Session = None):
 
         # Check if already seeded
         if db.query(Customer).count() >= 30:
-            print("[SEED] Database already contains sufficient seed data. Skipping full customer seed.")
+            print("[SEED] Database already contains sufficient seed data. Ensuring recovery outcomes are synchronized.")
+            _seed_recovery_outcomes(db)
             return
 
         print("[SEED] Starting comprehensive seed generation for PayRecover AI...")
@@ -393,6 +397,8 @@ def seed_database(db: Session = None):
                         db.add(action_rec)
 
         db.commit()
+        # Synchronize Recovery Outcomes for AI Intelligence Engine
+        _seed_recovery_outcomes(db)
         print(f"[SEED] Seed completed successfully: {db.query(Customer).count()} customers, {db.query(Payment).count()} payments, {db.query(RecoveryCase).count()} recovery cases.")
 
     except Exception as e:
@@ -459,6 +465,80 @@ def _seed_default_users(db: Session):
     if created_count > 0:
         db.commit()
         print(f"[SEED] Created {created_count} default system users.")
+
+
+def _seed_recovery_outcomes(db: Session):
+    """
+    Ensure every historical RecoveryCase has a corresponding, verified RecoveryOutcome record.
+    Prevents duplicate outcome records and preserves authoritative payment status labels.
+    """
+    cases = db.query(RecoveryCase).all()
+    count = 0
+    for c in cases:
+        existing = db.query(RecoveryOutcome).filter(RecoveryOutcome.recovery_case_id == c.id).first()
+        if not existing and c.payment:
+            p = c.payment
+            is_rec = (c.status == RecoveryStatus.RECOVERED.value and p.status in [PaymentStatus.RECOVERED.value, PaymentStatus.SUCCESS.value])
+            is_unsuccessful = (c.status in [RecoveryStatus.FAILED.value, RecoveryStatus.EXPIRED.value] or p.status == PaymentStatus.ABANDONED.value)
+            
+            dec_time = c.started_at or (p.created_at + timedelta(minutes=2))
+            comp_time = c.completed_at or (dec_time + timedelta(minutes=22)) if is_rec else (
+                (dec_time + timedelta(hours=24)) if is_unsuccessful else None
+            )
+
+            if is_rec:
+                status_val = RecoveryOutcomeStatus.RECOVERED.value
+                rec_amt = float(c.recovered_amount or p.amount)
+                verified = True
+                verif_src = "razorpay_webhook:payment.captured"
+                ttr = max(60.0, (comp_time - dec_time).total_seconds()) if comp_time else 1320.0
+            elif is_unsuccessful:
+                status_val = RecoveryOutcomeStatus.UNSUCCESSFUL.value
+                rec_amt = 0.0
+                verified = True
+                verif_src = "payment_workflow:retries_exhausted"
+                ttr = None
+            else:
+                status_val = RecoveryOutcomeStatus.PENDING.value
+                rec_amt = 0.0
+                verified = False
+                verif_src = None
+                ttr = None
+
+            strat_name = normalize_strategy_name(c.current_strategy or "PAYMENT_LINK")
+
+            outcome = RecoveryOutcome(
+                id=f"out_{uuid.uuid4().hex[:12]}",
+                recovery_case_id=c.id,
+                payment_id=p.id,
+                customer_id=p.customer_id,
+                failure_category=p.failure_reason or "UNKNOWN",
+                payment_method=p.payment_method,
+                amount=float(p.amount),
+                amount_range=amount_to_range(float(p.amount)),
+                customer_intent=c.customer_intent,
+                selected_strategy=strat_name,
+                communication_channel="WHATSAPP",
+                retry_count=c.retry_count or 0,
+                discount_offered_percent=0.0,
+                human_approval_required=(p.amount >= 50000.0),
+                processing_latency_ms=random.randint(110, 420),
+                outcome_status=status_val,
+                recovered_amount=rec_amt,
+                is_verified=verified,
+                verification_source=verif_src,
+                time_to_recovery_seconds=ttr,
+                decision_timestamp=dec_time,
+                outcome_timestamp=comp_time,
+                created_at=dec_time,
+                updated_at=comp_time or dec_time
+            )
+            db.add(outcome)
+            count += 1
+
+    if count > 0:
+        db.commit()
+        print(f"[SEED] Synchronized {count} RecoveryOutcome records for AI Intelligence Engine.")
 
 
 def reset_demo_data(db: Session = None):
