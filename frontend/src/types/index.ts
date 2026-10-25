@@ -1073,3 +1073,186 @@ export interface RAGHealthResponse {
   last_indexed_at?: string | null;
 }
 
+// -------------------------------------------------------------
+// PHASE 6 — EXPERIMENTATION & OPTIMIZATION TYPES
+// -------------------------------------------------------------
+
+export interface ExperimentArmConfig {
+  arm_id: string;
+  strategy: string;
+  traffic_percentage: number;
+  is_control: boolean;
+  description?: string;
+}
+
+export interface RecoveryExperimentItem {
+  id: string;
+  name: string;
+  objective: string;
+  hypothesis?: string;
+  status: 'DRAFT' | 'READY' | 'RUNNING' | 'PAUSED' | 'COMPLETED';
+  version: number;
+  merchant_id?: string;
+  owner_email: string;
+  primary_metric: string;
+  is_sandbox_only: boolean;
+  target_failure_categories: string[];
+  target_payment_methods: string[];
+  min_amount?: number;
+  max_amount?: number;
+  target_customer_intent: string[];
+  candidate_strategies: ExperimentArmConfig[];
+  max_sample_size?: number;
+  min_observation_count: number;
+  start_time?: string;
+  end_time?: string;
+  total_assignments: number;
+  total_terminal_outcomes: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ExperimentAssignmentItem {
+  assignment_id: string;
+  experiment_id: string;
+  experiment_name: string;
+  experiment_version: number;
+  recovery_case_id: string;
+  payment_id: string;
+  arm_id: string;
+  assigned_strategy: string;
+  is_control: boolean;
+  hash_bucket: number;
+  assigned_at: string;
+  actual_executed_strategy?: string;
+  is_strategy_deviated: boolean;
+  deviation_reason?: string;
+  outcome_status?: 'RECOVERED' | 'UNSUCCESSFUL' | 'PENDING' | 'UNKNOWN';
+  is_verified: boolean;
+  recovered_amount: number;
+  time_to_recovery_seconds?: number;
+  attributed_at?: string;
+}
+
+export interface ExperimentArmMetrics {
+  arm_id: string;
+  strategy: string;
+  is_control: boolean;
+  traffic_percentage: number;
+  description?: string;
+  assigned_count: number;
+  eligible_count: number;
+  pending_count: number;
+  unknown_count: number;
+  recovered_count: number;
+  unsuccessful_count: number;
+  recovery_rate: number;
+  wilson_ci_95: [number, number];
+  total_recovered_amount: number;
+  revenue_per_eligible_case: number;
+  avg_time_to_recovery_seconds?: number;
+  avg_retry_count: number;
+  avg_discount_cost: number;
+  human_escalation_count: number;
+  human_escalation_rate: number;
+  strategy_deviation_count: number;
+  strategy_deviation_rate: number;
+  sample_size_adequate: boolean;
+}
+
+export interface HypothesisComparisonResult {
+  treatment_arm_id: string;
+  control_arm_id: string;
+  treatment_strategy: string;
+  control_strategy: string;
+  treatment_rate: number;
+  control_rate: number;
+  absolute_lift: number;
+  relative_lift?: number;
+  ci_difference_95: [number, number];
+  z_score: number;
+  p_value: number;
+  is_statistically_significant: boolean;
+  treatment_rev_per_case: number;
+  control_rev_per_case: number;
+  revenue_difference: number;
+  revenue_p_value?: number;
+  recommendation: 'WINNER_TREATMENT' | 'INCONCLUSIVE_INSUFFICIENT_SAMPLE' | 'NO_SIGNIFICANT_DIFFERENCE' | 'WINNER_CONTROL' | string;
+  statistical_rationale: string;
+}
+
+export interface ExperimentMetricsResponse {
+  experiment_id: string;
+  experiment_name: string;
+  status: string;
+  version: number;
+  primary_metric: string;
+  is_sandbox_only: boolean;
+  total_assigned: number;
+  total_eligible: number;
+  total_pending: number;
+  total_unknown: number;
+  total_recovered: number;
+  total_revenue_recovered: number;
+  overall_recovery_rate: number;
+  arm_metrics: ExperimentArmMetrics[];
+  comparisons: HypothesisComparisonResult[];
+  methodological_safeguards: Record<string, any>;
+  sample_size_warnings: string[];
+  guardrail_deviation_warnings: string[];
+  as_of_timestamp: string;
+}
+
+export interface OfflineSimulationRequest {
+  cohort_size: number;
+  failure_category: string;
+  payment_method: string;
+  base_amount?: number;
+  random_seed?: number;
+  enable_thompson_sampling?: boolean;
+}
+
+export interface OfflineSimulationResponse {
+  simulation_id: string;
+  experiment_id: string;
+  cohort_size: number;
+  failure_category: string;
+  payment_method: string;
+  allocation_method: string;
+  arm_results: Array<{
+    arm_id: string;
+    strategy: string;
+    is_control: boolean;
+    assigned: number;
+    recovered: number;
+    recovery_rate: number;
+    revenue_recovered: number;
+    revenue_per_case: number;
+  }>;
+  winner_arm_id?: string;
+  simulated_absolute_lift: number;
+  simulated_revenue_gain: number;
+  mab_regret_reduction_percent?: number;
+  methodology_disclaimer: string;
+}
+
+export interface ExperimentCreateRequest {
+  name: string;
+  objective: string;
+  hypothesis?: string;
+  merchant_id?: string;
+  primary_metric?: string;
+  is_sandbox_only?: boolean;
+  target_failure_categories?: string[];
+  target_payment_methods?: string[];
+  min_amount?: number;
+  max_amount?: number;
+  target_customer_intent?: string[];
+  candidate_strategies: ExperimentArmConfig[];
+  max_sample_size?: number;
+  min_observation_count?: number;
+  start_time?: string;
+  end_time?: string;
+}
+
+

@@ -18,6 +18,7 @@ from app.api.events import router as events_router
 from app.api.webhooks import router as webhooks_router
 from app.api.intelligence import router as intelligence_router
 from app.api.knowledge import router as knowledge_router
+from app.api.experiments import router as experiments_router
 
 # Setup logging
 logging.basicConfig(
@@ -91,6 +92,7 @@ app.include_router(analytics_router, prefix="/api/analytics")
 app.include_router(system_router, prefix="/api/system")
 app.include_router(intelligence_router)
 app.include_router(knowledge_router, prefix="/api/knowledge")
+app.include_router(experiments_router, prefix="/api")
 
 
 @app.get("/")

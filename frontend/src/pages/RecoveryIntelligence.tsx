@@ -51,7 +51,8 @@ import {
   ExternalLink,
   AlertOctagon,
   Terminal,
-  Check
+  Check,
+  FlaskConical
 } from 'lucide-react';
 import {
   AnalyticsOverview,
@@ -74,6 +75,7 @@ import {
   RAGHealthResponse
 } from '../types';
 import { api } from '../services/api';
+import { ExperimentationWorkspace } from '../components/ExperimentationWorkspace';
 
 interface RecoveryIntelligenceProps {
   metrics?: DashboardMetrics | null;
@@ -92,7 +94,7 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
   const [recalibrating, setRecalibrating] = useState(false);
 
   // Tab views
-  const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'calibration' | 'outcomes' | 'knowledge'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'calibration' | 'outcomes' | 'knowledge' | 'experimentation'>('overview');
 
   // Base analytics
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
@@ -380,6 +382,13 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
             >
               <BookOpen className="w-3.5 h-3.5" />
               Knowledge & RAG
+            </button>
+            <button
+              onClick={() => setActiveTab('experimentation')}
+              className={`px-3 py-1 rounded-md font-medium transition flex items-center gap-1.5 ${activeTab === 'experimentation' ? 'bg-brand-cyan text-dark-900 font-bold shadow-glow-cyan' : 'text-slate-400 hover:text-white'}`}
+            >
+              <FlaskConical className="w-3.5 h-3.5" />
+              Experiments
             </button>
           </div>
 
@@ -1443,6 +1452,13 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
                   </div>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* TAB 6: EXPERIMENTATION WORKSPACE */}
+          {activeTab === 'experimentation' && (
+            <div className="space-y-6">
+              <ExperimentationWorkspace />
             </div>
           )}
 

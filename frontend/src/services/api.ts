@@ -44,7 +44,13 @@ import {
   KnowledgeQueryRequest,
   KnowledgeQueryResponse,
   EvidenceGroundedRecommendation,
-  RAGHealthResponse
+  RAGHealthResponse,
+  RecoveryExperimentItem,
+  ExperimentMetricsResponse,
+  ExperimentAssignmentItem,
+  ExperimentCreateRequest,
+  OfflineSimulationRequest,
+  OfflineSimulationResponse
 } from '../types';
 
 const API_BASE = '/api';
@@ -391,5 +397,57 @@ export const api = {
     request<EvidenceGroundedRecommendation>(`/knowledge/case/${caseId}/evidence`),
 
   getKnowledgeHealth: () =>
-    request<RAGHealthResponse>('/knowledge/health')
+    request<RAGHealthResponse>('/knowledge/health'),
+
+  // ─── Phase 6: Strategy Experimentation & Optimization Engine ───
+  getExperiments: (page = 1, limit = 20, status?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (status) params.append('status', status);
+    return request<{ total: number; page: number; limit: number; pages: number; experiments: RecoveryExperimentItem[] }>(`/experiments?${params.toString()}`);
+  },
+
+  getExperimentById: (id: string) =>
+    request<RecoveryExperimentItem>(`/experiments/${id}`),
+
+  createExperiment: (payload: ExperimentCreateRequest) =>
+    request<RecoveryExperimentItem>('/experiments', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  updateExperiment: (id: string, payload: any) =>
+    request<RecoveryExperimentItem>(`/experiments/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload)
+    }),
+
+  validateExperiment: (id: string) =>
+    request<{ is_valid: boolean; errors: string[]; warnings: string[]; traffic_sum: number; arms_count: number }>(`/experiments/${id}/validate`, {
+      method: 'POST'
+    }),
+
+  transitionExperimentStatus: (id: string, target_status: string, reason?: string) =>
+    request<RecoveryExperimentItem>(`/experiments/${id}/status`, {
+      method: 'POST',
+      body: JSON.stringify({ target_status, reason })
+    }),
+
+  getExperimentAssignments: (id: string, page = 1, limit = 50, arm_id?: string) => {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    if (arm_id) params.append('arm_id', arm_id);
+    return request<{ experiment_id: string; total: number; page: number; limit: number; assignments: ExperimentAssignmentItem[] }>(`/experiments/${id}/assignments?${params.toString()}`);
+  },
+
+  getExperimentMetrics: (id: string) =>
+    request<ExperimentMetricsResponse>(`/experiments/${id}/metrics`),
+
+  simulateExperiment: (id: string, payload: OfflineSimulationRequest) =>
+    request<OfflineSimulationResponse>(`/experiments/${id}/simulate`, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  exportExperimentTelemetryUrl: (id: string, format = 'csv') =>
+    `/api/experiments/${id}/export?format=${format}`
 };
+

@@ -774,6 +774,7 @@ class StrategyEvaluationResponse(BaseModel):
     guardrail_applied: bool
     guardrail_details: List[str] = Field(default_factory=list)
     data_limitations_warning: Optional[str] = None
+    experiment_evidence: Optional[Dict[str, Any]] = None
 
 
 class CalibrationMetricsResponse(BaseModel):
@@ -973,6 +974,263 @@ class RAGHealthResponse(BaseModel):
     vector_search_mode: str
     hybrid_ranking_active: bool
     last_indexed_at: Optional[datetime] = None
+
+
+# -------------------------------------------------------------
+# PHASE 6 — RECOVERY STRATEGY EXPERIMENTATION CONTRACTS
+# -------------------------------------------------------------
+
+class ExperimentArmConfig(BaseModel):
+    arm_id: str = Field(..., min_length=1, max_length=50, description="Unique identifier for the arm, e.g. 'control' or 'variant_alt'")
+    strategy: str = Field(..., description="Canonical recovery strategy, e.g. 'PAYMENT_LINK', 'ALTERNATIVE_PAYMENT_METHOD'")
+    traffic_percentage: float = Field(..., ge=0.0, le=100.0, description="Traffic percentage allocation (0 to 100)")
+    is_control: bool = Field(default=False, description="Whether this arm serves as the baseline control")
+    description: Optional[str] = Field(default=None, description="Human-readable description of this treatment")
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+
+class ExperimentEligibilityCriteria(BaseModel):
+    target_failure_categories: Optional[List[str]] = Field(default=None, description="Eligible failure reasons e.g. ['UPI_TIMEOUT', 'CARD_DECLINED']")
+    target_payment_methods: Optional[List[str]] = Field(default=None, description="Eligible payment methods e.g. ['UPI', 'CARD']")
+    min_amount: Optional[float] = Field(default=None, ge=0.0, description="Minimum payment amount in INR")
+    max_amount: Optional[float] = Field(default=None, ge=0.0, description="Maximum payment amount in INR")
+    target_customer_intent: Optional[List[str]] = Field(default=None, description="Eligible customer intents e.g. ['WILL_PAY_LATER']")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExperimentCreateRequest(BaseModel):
+    name: str = Field(..., min_length=3, max_length=150, description="Experiment title")
+    objective: str = Field(..., min_length=10, description="Measurable experimentation objective")
+    hypothesis: Optional[str] = Field(default=None, description="Scientific hypothesis (e.g. Alternative method lifts UPI recovery by 5%)")
+    merchant_id: Optional[str] = Field(default=None, description="Merchant tenant ID, or null for platform-wide")
+    primary_metric: str = Field(default="recovery_rate", description="Primary evaluative metric (recovery_rate, recovered_revenue)")
+    is_sandbox_only: bool = Field(default=True, description="Fintech safety control: live customers are excluded by default")
+
+    # Eligibility filters
+    target_failure_categories: Optional[List[str]] = Field(default=None)
+    target_payment_methods: Optional[List[str]] = Field(default=None)
+    min_amount: Optional[float] = Field(default=None, ge=0.0)
+    max_amount: Optional[float] = Field(default=None, ge=0.0)
+    target_customer_intent: Optional[List[str]] = Field(default=None)
+
+    # Candidate Strategy Arms
+    candidate_strategies: List[ExperimentArmConfig] = Field(..., min_length=2, description="At least two strategy arms (control + variant)")
+
+    # Sample and timeline limits
+    max_sample_size: Optional[int] = Field(default=None, ge=10, description="Optional cap on total assignments")
+    min_observation_count: int = Field(default=30, ge=5, description="Minimum terminal observations before inferring significance")
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+
+class ExperimentUpdateRequest(BaseModel):
+    name: Optional[str] = Field(default=None, min_length=3, max_length=150)
+    objective: Optional[str] = Field(default=None, min_length=10)
+    hypothesis: Optional[str] = None
+    primary_metric: Optional[str] = None
+    is_sandbox_only: Optional[bool] = None
+    target_failure_categories: Optional[List[str]] = None
+    target_payment_methods: Optional[List[str]] = None
+    min_amount: Optional[float] = None
+    max_amount: Optional[float] = None
+    target_customer_intent: Optional[List[str]] = None
+    candidate_strategies: Optional[List[ExperimentArmConfig]] = None
+    max_sample_size: Optional[int] = None
+    min_observation_count: Optional[int] = None
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True, str_strip_whitespace=True)
+
+
+class ExperimentStatusTransitionRequest(BaseModel):
+    target_status: str = Field(..., description="Target status: READY, RUNNING, PAUSED, COMPLETED")
+    reason: Optional[str] = Field(default=None, description="Audit reason for status transition")
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExperimentValidationResponse(BaseModel):
+    is_valid: bool
+    errors: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    traffic_sum: float
+    arms_count: int
+    has_control_arm: bool
+    conflicting_experiments: List[str] = Field(default_factory=list)
+
+
+class ExperimentItemResponse(BaseModel):
+    id: str
+    name: str
+    objective: str
+    hypothesis: Optional[str] = None
+    status: str
+    version: int
+    merchant_id: Optional[str] = None
+    owner_email: str
+    primary_metric: str
+    is_sandbox_only: bool
+    target_failure_categories: List[str] = Field(default_factory=list)
+    target_payment_methods: List[str] = Field(default_factory=list)
+    min_amount: Optional[float] = None
+    max_amount: Optional[float] = None
+    target_customer_intent: List[str] = Field(default_factory=list)
+    candidate_strategies: List[ExperimentArmConfig] = Field(default_factory=list)
+    max_sample_size: Optional[int] = None
+    min_observation_count: int
+    start_time: Optional[datetime] = None
+    end_time: Optional[datetime] = None
+    total_assignments: int = 0
+    total_terminal_outcomes: int = 0
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExperimentAssignmentResponse(BaseModel):
+    assignment_id: str
+    experiment_id: str
+    experiment_name: str
+    experiment_version: int
+    recovery_case_id: str
+    payment_id: str
+    arm_id: str
+    assigned_strategy: str
+    is_control: bool
+    hash_bucket: int
+    assigned_at: datetime
+
+    # Attributed outcome details if resolved
+    actual_executed_strategy: Optional[str] = None
+    is_strategy_deviated: bool = False
+    deviation_reason: Optional[str] = None
+    outcome_status: Optional[str] = None
+    is_verified: bool = False
+    recovered_amount: float = 0.0
+    time_to_recovery_seconds: Optional[float] = None
+    attributed_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ExperimentArmMetrics(BaseModel):
+    arm_id: str
+    strategy: str
+    is_control: bool
+    traffic_percentage: float
+    description: Optional[str] = None
+
+    # Counts
+    assigned_count: int
+    eligible_count: int  # Denominator: terminal labeled cases (RECOVERED + UNSUCCESSFUL)
+    pending_count: int   # Excluded from rate denominator
+    unknown_count: int
+    recovered_count: int
+    unsuccessful_count: int
+
+    # Proportions & CIs
+    recovery_rate: float
+    wilson_ci_95: List[float] = Field(default_factory=lambda: [0.0, 0.0])
+
+    # Financial & Operational Metrics
+    total_recovered_amount: float
+    revenue_per_eligible_case: float
+    avg_time_to_recovery_seconds: Optional[float] = None
+    avg_retry_count: float = 0.0
+    avg_discount_cost: float = 0.0
+    human_escalation_count: int = 0
+    human_escalation_rate: float = 0.0
+
+    # Guardrail Deviation tracking
+    strategy_deviation_count: int = 0
+    strategy_deviation_rate: float = 0.0
+    sample_size_adequate: bool = False
+
+
+class HypothesisComparisonResult(BaseModel):
+    treatment_arm_id: str
+    control_arm_id: str
+    treatment_strategy: str
+    control_strategy: str
+
+    # Proportions comparison (Two-proportion z-test)
+    treatment_rate: float
+    control_rate: float
+    absolute_lift: float  # (p_treat - p_ctrl)
+    relative_lift: Optional[float] = None  # (p_treat - p_ctrl) / p_ctrl
+    ci_difference_95: List[float] = Field(default_factory=lambda: [0.0, 0.0])
+    z_score: float
+    p_value: float
+    is_statistically_significant: bool
+
+    # Revenue comparison
+    treatment_rev_per_case: float
+    control_rev_per_case: float
+    revenue_difference: float
+    revenue_p_value: Optional[float] = None
+
+    # Verdict
+    recommendation: str  # WINNER_TREATMENT | INCONCLUSIVE_INSUFFICIENT_SAMPLE | NO_SIGNIFICANT_DIFFERENCE | WINNER_CONTROL
+    statistical_rationale: str
+
+
+class ExperimentMetricsResponse(BaseModel):
+    experiment_id: str
+    experiment_name: str
+    status: str
+    version: int
+    primary_metric: str
+    is_sandbox_only: bool
+
+    # Global Cohort Aggregates
+    total_assigned: int
+    total_eligible: int  # Terminal denominator
+    total_pending: int
+    total_unknown: int
+    total_recovered: int
+    total_revenue_recovered: float
+    overall_recovery_rate: float
+
+    # Per-Arm Breakdown & Comparisons
+    arm_metrics: List[ExperimentArmMetrics]
+    comparisons: List[HypothesisComparisonResult]
+
+    # Methodological Integrity Safeguards
+    methodological_safeguards: Dict[str, Any] = Field(default_factory=dict)
+    sample_size_warnings: List[str] = Field(default_factory=list)
+    guardrail_deviation_warnings: List[str] = Field(default_factory=list)
+    as_of_timestamp: datetime
+
+
+class OfflineSimulationRequest(BaseModel):
+    cohort_size: int = Field(default=100, ge=10, le=1000, description="Number of synthetic/offline cases to simulate")
+    failure_category: str = Field(default="UPI_TIMEOUT", description="Failure reason for the simulated cohort")
+    payment_method: str = Field(default="UPI", description="Payment method for cohort")
+    base_amount: float = Field(default=2500.0, ge=10.0, le=500000.0)
+    random_seed: int = Field(default=42, description="Random seed for reproducibility")
+    enable_thompson_sampling: bool = Field(default=False, description="Simulate adaptive multi-armed bandit allocation")
+
+
+class OfflineSimulationResponse(BaseModel):
+    simulation_id: str
+    experiment_id: str
+    cohort_size: int
+    failure_category: str
+    payment_method: str
+    allocation_method: str  # DETERMINISTIC_FIXED_SPLIT | ADAPTIVE_THOMPSON_SAMPLING
+    arm_results: List[Dict[str, Any]]
+    winner_arm_id: Optional[str] = None
+    simulated_absolute_lift: float
+    simulated_revenue_gain: float
+    mab_regret_reduction_percent: Optional[float] = None
+    methodology_disclaimer: str
+
 
 
 

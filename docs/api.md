@@ -202,3 +202,38 @@ Cleans up simulated demo cases, resets merchant guardrails to baseline, and prov
     "cleared_payments": 4
   }
   ```
+
+---
+
+## 5. Recovery Strategy Experimentation & Optimization (Phase 6)
+
+### `GET /api/experiments`
+Lists all recovery strategy experiments for the authenticated merchant with filtering by status, pagination, and summary arm counts.
+
+### `POST /api/experiments`
+Creates a new recovery strategy experiment in `DRAFT` status with configured treatment/control arms and eligibility criteria.
+
+### `GET /api/experiments/{experiment_id}`
+Retrieves full experiment specification, candidate arms, eligibility filters, and sample thresholds.
+
+### `PUT /api/experiments/{experiment_id}`
+Updates draft experiment parameters, arms, and targeting criteria prior to activation.
+
+### `POST /api/experiments/{experiment_id}/validate`
+Validates traffic split consistency (must sum to 100%), control arm definition, and guardrail compatibility.
+
+### `POST /api/experiments/{experiment_id}/status`
+Transitions experiment status (`READY`, `RUNNING`, `PAUSED`, `COMPLETED`). Checks for conflicting running experiments.
+
+### `GET /api/experiments/{experiment_id}/assignments`
+Retrieves paginated stream of case assignments, allocated strategies, execution timestamps, and guardrail deviation flags.
+
+### `GET /api/experiments/{experiment_id}/metrics`
+Computes statistical evaluation: verified recovery rate, Wilson 95% score intervals, recovered revenue, time to recovery, and two-proportion z-test comparisons against control.
+
+### `POST /api/experiments/simulate`
+Runs deterministic offline Monte Carlo simulation comparing Thompson Sampling vs. fixed split over historical cases.
+
+### `GET /api/experiments/{experiment_id}/export`
+Exports sanitized audit log and outcome attribution records for external compliance and data warehouse pipelines.
+

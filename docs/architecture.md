@@ -141,3 +141,18 @@ The relational layer is managed via PostgreSQL (with SQLite zero-config fallback
 - Client operations support `Idempotency-Key` headers.
 - Duplicate payloads return the cached execution result with identical status code and payload without re-triggering provider APIs.
 - Concurrency locks prevent duplicate simultaneous recovery execution on the same case.
+
+---
+
+## 5. Experimentation & Optimization Engine (Phase 6)
+
+The Phase 6 Experimentation Platform introduces randomized, controlled recovery strategy testing:
+
+### Architectural Components
+- **Experiment Lifecycle State Machine**: Enforces strict transitions across `DRAFT`, `READY`, `RUNNING`, `PAUSED`, and `COMPLETED`. Concurrency controls prevent overlapping running experiments for the same merchant, payment method, and failure category.
+- **Deterministic Hashing Router**: Uses `SHA-256(experiment_id:case_id:version)` modulo 10,000 for deterministic bucket assignment across control and treatment arms.
+- **Strategy Execution & Deviation Logger**: If deterministic safety guardrails (e.g., high-value approval) override an assigned strategy, the orchestrator executes the compliant fallback and marks `is_strategy_deviated = True` with the reason.
+- **Authoritative Outcome Attribution**: Strictly reconciles verified `RECOVERED` outcomes from authoritative provider events, rejecting expired outcomes outside the 7-day attribution window.
+- **Statistical Analytics Engine**: Calculates 95% Wilson score intervals, two-proportion z-tests with exact p-values, Welch's t-tests for revenue comparison, and sample-size sufficiency warnings.
+- **Evidence-Grounded Strategy Optimization**: Feeds verified experiment lift into `StrategyEvaluationEngine` candidate scoring and enables safe offline Monte Carlo Thompson Sampling simulations.
+

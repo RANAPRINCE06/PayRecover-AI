@@ -119,6 +119,22 @@ class RecoveryOrchestrator:
 
         # Step 3: Strategy Formulation & Decision Recording
         strategy = strategist_agent.formulate_strategy(investigation, payment)
+
+        # Phase 6: Check for experiment assignment
+        try:
+            from app.services.experiment_service import experiment_service
+            exp_assign = experiment_service.assign_strategy_for_case(
+                db=db,
+                recovery_case=recovery_case,
+                payment=payment,
+                is_sandbox_request=True,
+                assigned_by="orchestrator_pipeline"
+            )
+            if exp_assign:
+                strategy.strategy = exp_assign.assigned_strategy
+        except Exception as exp_err:
+            logger.debug(f"Experiment assignment bypass in legacy pipeline: {exp_err}")
+
         recovery_case.current_strategy = strategy.strategy
         recovery_case.status = RecoveryStatus.STRATEGY_SELECTED.value
         db.commit()
@@ -337,6 +353,21 @@ class RecoveryOrchestrator:
                 strategy.strategy = eval_response.recommended_strategy
                 strategy.expected_recovery_probability = eval_response.calibrated_probability
 
+            # Phase 6: Check for active Controlled Strategy Experiment Assignment
+            try:
+                from app.services.experiment_service import experiment_service
+                exp_assign = experiment_service.assign_strategy_for_case(
+                    db=db,
+                    recovery_case=case,
+                    payment=payment,
+                    is_sandbox_request=True,
+                    assigned_by="autonomous_orchestrator"
+                )
+                if exp_assign:
+                    strategy.strategy = exp_assign.assigned_strategy
+            except Exception as exp_err:
+                logger.debug(f"Experiment assignment bypass in autonomous pipeline: {exp_err}")
+
             case.current_strategy = strategy.strategy
             case.recovery_probability = strategy.expected_recovery_probability
             case.status = RecoveryStatus.STRATEGY_SELECTED.value
@@ -425,6 +456,20 @@ class RecoveryOrchestrator:
             guardrail_constraints=g_constraints,
             output={"guardrail_status": g_status, "needs_approval": needs_approval}
         ))
+
+        # Phase 6: Record strategy execution and guardrail deviations in experimentation engine
+        try:
+            from app.services.experiment_service import experiment_service
+            experiment_service.record_strategy_execution(
+                db=db,
+                recovery_case_id=case.id,
+                executed_strategy="HUMAN_ESCALATION" if needs_approval else strategy.strategy,
+                human_escalated=needs_approval,
+                discount_offered=strategy.discount_percentage,
+                retry_count=case.retry_count or 0
+            )
+        except Exception as exp_exec_err:
+            logger.debug(f"Could not record experiment execution: {exp_exec_err}")
 
         if g_status == "BLOCKED":
             end = datetime.utcnow()

@@ -10,7 +10,8 @@ from sqlalchemy import (
     ForeignKey,
     Text,
     Enum as SQLEnum,
-    Index
+    Index,
+    UniqueConstraint
 )
 from sqlalchemy.orm import relationship
 from app.db.session import Base
@@ -480,5 +481,131 @@ class KnowledgeChunk(Base):
     __table_args__ = (
         Index("idx_kchunk_doc_index", "document_id", "chunk_index"),
     )
+
+
+# -------------------------------------------------------------
+# PHASE 6 — RECOVERY STRATEGY EXPERIMENTATION & OPTIMIZATION
+# -------------------------------------------------------------
+
+class ExperimentStatus(str, enum.Enum):
+    DRAFT = "DRAFT"
+    READY = "READY"
+    RUNNING = "RUNNING"
+    PAUSED = "PAUSED"
+    COMPLETED = "COMPLETED"
+
+
+class RecoveryExperiment(Base):
+    __tablename__ = "recovery_experiments"
+
+    id = Column(String(50), primary_key=True, index=True)
+    name = Column(String(150), nullable=False)
+    objective = Column(Text, nullable=False)
+    hypothesis = Column(Text, nullable=True)
+    status = Column(String(50), default=ExperimentStatus.DRAFT.value, nullable=False, index=True)
+    version = Column(Integer, default=1, nullable=False)
+    merchant_id = Column(String(50), ForeignKey("merchants.id"), nullable=True, index=True)
+    owner_email = Column(String(150), nullable=False)
+    primary_metric = Column(String(50), default="recovery_rate", nullable=False)
+    is_sandbox_only = Column(Boolean, default=True, nullable=False)
+
+    # Eligibility & Targeting Filters (JSON arrays / numeric thresholds)
+    target_failure_categories_json = Column(Text, nullable=True)  # JSON list e.g. ["UPI_TIMEOUT", "CARD_DECLINED"]
+    target_payment_methods_json = Column(Text, nullable=True)      # JSON list e.g. ["UPI", "CARD"]
+    min_amount = Column(Float, nullable=True)
+    max_amount = Column(Float, nullable=True)
+    target_customer_intent_json = Column(Text, nullable=True)     # JSON list e.g. ["WILL_PAY_LATER"]
+
+    # Candidate Strategy Arms (JSON list of arm configurations)
+    # [{"arm_id": "control", "strategy": "PAYMENT_LINK", "traffic_percentage": 50.0, "is_control": True}, ...]
+    candidate_strategies_json = Column(Text, nullable=False)
+
+    # Observation Constraints
+    max_sample_size = Column(Integer, nullable=True)
+    min_observation_count = Column(Integer, default=30, nullable=False)
+    start_time = Column(DateTime, nullable=True)
+    end_time = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant")
+    assignments = relationship("ExperimentAssignment", back_populates="experiment", cascade="all, delete-orphan")
+    attributions = relationship("ExperimentOutcomeAttribution", back_populates="experiment", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_exp_status_merchant", "status", "merchant_id"),
+        Index("idx_exp_status_created", "status", "created_at"),
+    )
+
+
+class ExperimentAssignment(Base):
+    __tablename__ = "experiment_assignments"
+
+    id = Column(String(50), primary_key=True, index=True)
+    experiment_id = Column(String(50), ForeignKey("recovery_experiments.id"), nullable=False, index=True)
+    experiment_version = Column(Integer, nullable=False)
+    recovery_case_id = Column(String(50), ForeignKey("recovery_cases.id"), nullable=False, index=True)
+    payment_id = Column(String(50), ForeignKey("payments.id"), nullable=False, index=True)
+    arm_id = Column(String(50), nullable=False, index=True)
+    assigned_strategy = Column(String(100), nullable=False, index=True)
+    is_control = Column(Boolean, default=False, nullable=False)
+    hash_bucket = Column(Integer, nullable=False)
+    assignment_salt = Column(String(50), nullable=False)
+    assigned_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    eligibility_snapshot_json = Column(Text, nullable=True)
+
+    experiment = relationship("RecoveryExperiment", back_populates="assignments")
+    recovery_case = relationship("RecoveryCase")
+    payment = relationship("Payment")
+    attribution = relationship("ExperimentOutcomeAttribution", back_populates="assignment", uselist=False, cascade="all, delete-orphan")
+
+    __table_args__ = (
+        UniqueConstraint("experiment_id", "recovery_case_id", name="uq_exp_case_assignment"),
+        Index("idx_exp_assign_arm", "experiment_id", "arm_id"),
+    )
+
+
+class ExperimentOutcomeAttribution(Base):
+    __tablename__ = "experiment_outcome_attributions"
+
+    id = Column(String(50), primary_key=True, index=True)
+    assignment_id = Column(String(50), ForeignKey("experiment_assignments.id"), unique=True, nullable=False, index=True)
+    experiment_id = Column(String(50), ForeignKey("recovery_experiments.id"), nullable=False, index=True)
+    recovery_case_id = Column(String(50), ForeignKey("recovery_cases.id"), nullable=False, index=True)
+    payment_id = Column(String(50), ForeignKey("payments.id"), nullable=False, index=True)
+    arm_id = Column(String(50), nullable=False, index=True)
+
+    assigned_strategy = Column(String(100), nullable=False)
+    actual_executed_strategy = Column(String(100), nullable=False)
+    is_strategy_deviated = Column(Boolean, default=False, nullable=False)
+    deviation_reason = Column(String(255), nullable=True)
+
+    outcome_status = Column(String(50), default="PENDING", nullable=False, index=True)
+    is_verified = Column(Boolean, default=False, nullable=False)
+    recovered_amount = Column(Float, default=0.0, nullable=False)
+    discount_offered = Column(Float, default=0.0, nullable=False)
+    retry_count = Column(Integer, default=0, nullable=False)
+    human_escalated = Column(Boolean, default=False, nullable=False)
+    time_to_recovery_seconds = Column(Float, nullable=True)
+
+    assigned_at = Column(DateTime, nullable=False)
+    executed_at = Column(DateTime, nullable=True)
+    attributed_at = Column(DateTime, nullable=True)
+    verification_source = Column(String(150), nullable=True)
+    attribution_window_valid = Column(Boolean, default=True, nullable=False)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    assignment = relationship("ExperimentAssignment", back_populates="attribution")
+    experiment = relationship("RecoveryExperiment", back_populates="attributions")
+    recovery_case = relationship("RecoveryCase")
+    payment = relationship("Payment")
+
+    __table_args__ = (
+        Index("idx_att_exp_arm_outcome", "experiment_id", "arm_id", "outcome_status"),
+    )
+
 
 

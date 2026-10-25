@@ -623,6 +623,38 @@ class StrategyEvaluationEngine:
             )
             candidate_evals.append(eval_cand)
 
+        # Phase 6: Check for statistically verified experiment evidence
+        exp_evidence_data = None
+        exp_bonuses = {}
+        try:
+            import json
+            from app.models.entities import RecoveryExperiment, ExperimentStatus
+            from app.services.experiment_service import experiment_service
+            active_exps = db.query(RecoveryExperiment).filter(
+                RecoveryExperiment.status.in_([ExperimentStatus.COMPLETED.value, ExperimentStatus.RUNNING.value])
+            ).all()
+            for exp in active_exps:
+                failures = json.loads(exp.target_failure_categories_json or "[]")
+                if failures and failure.upper() not in [f.upper() for f in failures]:
+                    continue
+                metrics = experiment_service.calculate_experiment_metrics(db, exp.id)
+                for cmp in metrics.comparisons:
+                    if cmp.is_statistically_significant and cmp.recommendation == "WINNER_TREATMENT" and cmp.absolute_lift > 0:
+                        strat_norm = normalize_strategy_name(cmp.treatment_strategy)
+                        exp_bonuses[strat_norm] = min(0.20, cmp.absolute_lift)
+                        exp_evidence_data = {
+                            "experiment_id": exp.id,
+                            "experiment_name": exp.name,
+                            "version": exp.version,
+                            "winning_strategy": strat_norm,
+                            "absolute_lift": cmp.absolute_lift,
+                            "p_value": cmp.p_value,
+                            "is_significant": True,
+                            "summary": f"Experiment '{exp.name}' proved +{cmp.absolute_lift*100:.1f}% lift (p={cmp.p_value:.4f}) for {strat_norm}"
+                        }
+        except Exception:
+            pass
+
         # Ranking logic:
         # 1. Eligible candidates strictly before ineligible
         # 2. If high-value guardrail is active, HUMAN_ESCALATION ranks #1
@@ -645,6 +677,10 @@ class StrategyEvaluationEngine:
                 score += 0.15
             elif intent == "PRICE_OBJECTION" and cand.strategy == "PAYMENT_LINK":
                 score += 0.10
+
+            # Experimentation empirical lift bonus
+            if cand.strategy in exp_bonuses:
+                score += exp_bonuses[cand.strategy]
 
             # Penalty for high uncertainty when sample size is 0
             if cand.sample_size == 0:
@@ -684,7 +720,8 @@ class StrategyEvaluationEngine:
             candidates=candidate_evals,
             guardrail_applied=guardrail_applied,
             guardrail_details=guardrail_details,
-            data_limitations_warning=limitations_warning
+            data_limitations_warning=limitations_warning,
+            experiment_evidence=exp_evidence_data
         )
 
     def _check_eligibility(
@@ -933,6 +970,18 @@ class OutcomeTrackingService:
         outcome.updated_at = datetime.utcnow()
         db.commit()
         db.refresh(outcome)
+
+        # Phase 6: Reconcile experiment outcome attribution if assigned
+        try:
+            from app.services.experiment_service import experiment_service
+            experiment_service.reconcile_experiment_outcome(
+                db=db,
+                recovery_case_id=recovery_case_id,
+                verification_source=verification_source,
+                outcome_time=actual_time
+            )
+        except Exception as exp_err:
+            logger.warning(f"[OutcomeEngine] Could not reconcile experiment attribution for {recovery_case_id}: {exp_err}")
 
         logger.info(
             f"[OutcomeEngine] Verified outcome for case {recovery_case_id}: status={outcome.outcome_status}, "

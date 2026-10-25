@@ -14,7 +14,18 @@ from app.models.entities import (
     ActionType,
     ActionStatus,
     InteractionChannel,
-    InteractionDirection
+    InteractionDirection,
+    User,
+    UserRole,
+    WebhookEvent,
+    RecoveryOutcome,
+    RecoveryOutcomeStatus,
+    KnowledgeDocument,
+    KnowledgeChunk,
+    ExperimentStatus,
+    RecoveryExperiment,
+    ExperimentAssignment,
+    ExperimentOutcomeAttribution
 )
 
 __all__ = [
@@ -33,5 +44,17 @@ __all__ = [
     "ActionType",
     "ActionStatus",
     "InteractionChannel",
-    "InteractionDirection"
+    "InteractionDirection",
+    "User",
+    "UserRole",
+    "WebhookEvent",
+    "RecoveryOutcome",
+    "RecoveryOutcomeStatus",
+    "KnowledgeDocument",
+    "KnowledgeChunk",
+    "ExperimentStatus",
+    "RecoveryExperiment",
+    "ExperimentAssignment",
+    "ExperimentOutcomeAttribution"
 ]
+

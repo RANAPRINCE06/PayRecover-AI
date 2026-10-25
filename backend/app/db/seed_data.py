@@ -30,7 +30,11 @@ from app.models.entities import (
     KnowledgeDocument,
     KnowledgeChunk,
     KnowledgeCategory,
-    VerificationStatus
+    VerificationStatus,
+    RecoveryExperiment,
+    ExperimentAssignment,
+    ExperimentOutcomeAttribution,
+    ExperimentStatus
 )
 from app.services.intelligence_service import amount_to_range, normalize_strategy_name
 from app.services.ingestion_service import ingestion_service
@@ -54,6 +58,7 @@ def seed_database(db: Session = None):
             print("[SEED] Database already contains sufficient seed data. Ensuring recovery outcomes and knowledge docs are synchronized.")
             _seed_recovery_outcomes(db)
             _seed_knowledge_documents(db)
+            _seed_recovery_experiments(db)
             return
 
         print("[SEED] Starting comprehensive seed generation for PayRecover AI...")
@@ -405,6 +410,7 @@ def seed_database(db: Session = None):
         db.commit()
         # Synchronize Recovery Outcomes for AI Intelligence Engine
         _seed_recovery_outcomes(db)
+        _seed_recovery_experiments(db)
         print(f"[SEED] Seed completed successfully: {db.query(Customer).count()} customers, {db.query(Payment).count()} payments, {db.query(RecoveryCase).count()} recovery cases.")
 
     except Exception as e:
@@ -674,6 +680,256 @@ The median time-to-recovery (TTR) for successful automated recovery is 18.4 minu
 
     if indexed_count > 0:
         print(f"[SEED] Ingested and indexed {indexed_count} initial RAG knowledge documents.")
+
+
+def _seed_recovery_experiments(db: Session):
+    """
+    Seed initial controlled strategy experiments, assignments, and verified outcome attributions.
+    Provides realistic baseline data for the Experimentation Workspace.
+    """
+    # 1. Experiment 1: UPI Timeout Recovery (RUNNING)
+    exp1 = db.query(RecoveryExperiment).filter(RecoveryExperiment.id == "exp_upi_recovery_v1").first()
+    if not exp1:
+        exp1 = RecoveryExperiment(
+            id="exp_upi_recovery_v1",
+            name="UPI Technical Timeout: Fallback Method vs Instant Link",
+            objective="Evaluate whether presenting alternative UPI rails or netbanking significantly reduces abandonment compared to standard payment link.",
+            hypothesis="Alternative payment method increases recovery conversion by at least 8.0% for UPI timeout failures.",
+            status=ExperimentStatus.RUNNING.value,
+            version=1,
+            merchant_id="merchant_primary",
+            owner_email="operator@payrecover.ai",
+            primary_metric="recovery_rate",
+            is_sandbox_only=True,
+            target_failure_categories_json=json.dumps(["UPI_TIMEOUT", "BANK_SERVER_DOWN"]),
+            target_payment_methods_json=json.dumps(["UPI"]),
+            candidate_strategies_json=json.dumps([
+                {
+                    "arm_id": "control_link",
+                    "strategy": "PAYMENT_LINK",
+                    "traffic_percentage": 50.0,
+                    "is_control": True,
+                    "description": "Control: Instant WhatsApp Payment Link"
+                },
+                {
+                    "arm_id": "variant_alt_method",
+                    "strategy": "ALTERNATIVE_PAYMENT_METHOD",
+                    "traffic_percentage": 50.0,
+                    "is_control": False,
+                    "description": "Treatment: Multi-Rail Alternative Payment Method"
+                }
+            ]),
+            min_observation_count=30,
+            start_time=datetime.utcnow() - timedelta(days=14),
+            created_at=datetime.utcnow() - timedelta(days=14),
+            updated_at=datetime.utcnow()
+        )
+        db.add(exp1)
+        db.flush()
+
+        # Seed assignments and outcome attributions from existing UPI recovery cases
+        upi_cases = db.query(RecoveryCase).join(Payment).filter(
+            Payment.payment_method == "UPI"
+        ).limit(50).all()
+
+        for idx, rc in enumerate(upi_cases):
+            p = rc.payment
+            is_ctrl = (idx % 2 == 0)
+            arm_id = "control_link" if is_ctrl else "variant_alt_method"
+            strat = "PAYMENT_LINK" if is_ctrl else "ALTERNATIVE_PAYMENT_METHOD"
+            bucket = (idx * 1667) % 10000
+
+            asgn = db.query(ExperimentAssignment).filter(
+                ExperimentAssignment.experiment_id == exp1.id,
+                ExperimentAssignment.recovery_case_id == rc.id
+            ).first()
+
+            if not asgn:
+                asgn = ExperimentAssignment(
+                    id=f"asgn_upi_{idx:03d}",
+                    experiment_id=exp1.id,
+                    experiment_version=1,
+                    recovery_case_id=rc.id,
+                    payment_id=p.id,
+                    arm_id=arm_id,
+                    assigned_strategy=strat,
+                    is_control=is_ctrl,
+                    hash_bucket=bucket,
+                    assignment_salt=f"{exp1.id}:v1:payrecover_salt",
+                    assigned_at=rc.started_at,
+                    eligibility_snapshot_json=json.dumps({
+                        "failure_reason": p.failure_reason,
+                        "payment_method": p.payment_method,
+                        "amount": float(p.amount)
+                    })
+                )
+                db.add(asgn)
+                db.flush()
+
+            # Outcome attribution
+            is_rec = (rc.status == RecoveryStatus.RECOVERED.value or p.status in ("RECOVERED", "SUCCESS"))
+            is_fail = (rc.status in (RecoveryStatus.FAILED.value, RecoveryStatus.EXPIRED.value))
+            status_str = "RECOVERED" if is_rec else ("UNSUCCESSFUL" if is_fail else "PENDING")
+            rec_amt = float(rc.recovered_amount or p.amount) if is_rec else 0.0
+
+            is_dev = False
+            dev_reason = None
+            actual_strat = strat
+            if p.amount >= 50000.0:
+                is_dev = True
+                dev_reason = "GUARDRAIL_OVERRIDE_HIGH_VALUE_HUMAN_APPROVAL"
+                actual_strat = "HUMAN_ESCALATION"
+
+            att = db.query(ExperimentOutcomeAttribution).filter(
+                ExperimentOutcomeAttribution.assignment_id == asgn.id
+            ).first()
+
+            if not att:
+                att = ExperimentOutcomeAttribution(
+                    id=f"att_upi_{idx:03d}",
+                    assignment_id=asgn.id,
+                    experiment_id=exp1.id,
+                    recovery_case_id=rc.id,
+                    payment_id=p.id,
+                    arm_id=arm_id,
+                    assigned_strategy=strat,
+                    actual_executed_strategy=actual_strat,
+                    is_strategy_deviated=is_dev,
+                    deviation_reason=dev_reason,
+                    outcome_status=status_str,
+                    is_verified=(status_str in ("RECOVERED", "UNSUCCESSFUL")),
+                    recovered_amount=rec_amt,
+                    discount_offered=0.0,
+                    retry_count=rc.retry_count or 0,
+                    human_escalated=(actual_strat == "HUMAN_ESCALATION"),
+                    time_to_recovery_seconds=920.0 if is_rec else None,
+                    assigned_at=rc.started_at,
+                    executed_at=rc.started_at + timedelta(minutes=2),
+                    attributed_at=rc.completed_at or (rc.started_at + timedelta(hours=2)),
+                    verification_source="razorpay_webhook_verified",
+                    attribution_window_valid=True,
+                    created_at=rc.started_at,
+                    updated_at=datetime.utcnow()
+                )
+                db.add(att)
+
+    # 2. Experiment 2: Card Decline Policy (COMPLETED)
+    exp2 = db.query(RecoveryExperiment).filter(RecoveryExperiment.id == "exp_card_decline_v1").first()
+    if not exp2:
+        exp2 = RecoveryExperiment(
+            id="exp_card_decline_v1",
+            name="Card Decline Recovery: Immediate Auto-Retry vs Scheduled Reminder",
+            objective="Determine whether executing immediate programmatic retries outperforms delayed scheduled WhatsApp reminders for card authentication failures.",
+            hypothesis="Scheduled reminder yields higher recovered revenue by allowing customer to verify funds or 3DS limits.",
+            status=ExperimentStatus.COMPLETED.value,
+            version=1,
+            merchant_id="merchant_primary",
+            owner_email="admin@payrecover.ai",
+            primary_metric="recovered_revenue",
+            is_sandbox_only=True,
+            target_failure_categories_json=json.dumps(["CARD_DECLINED", "AUTHENTICATION_FAILED"]),
+            target_payment_methods_json=json.dumps(["CARD"]),
+            candidate_strategies_json=json.dumps([
+                {
+                    "arm_id": "control_retry",
+                    "strategy": "PAYMENT_RETRY",
+                    "traffic_percentage": 50.0,
+                    "is_control": True,
+                    "description": "Control: Immediate Payment Retry"
+                },
+                {
+                    "arm_id": "variant_reminder",
+                    "strategy": "SCHEDULED_REMINDER",
+                    "traffic_percentage": 50.0,
+                    "is_control": False,
+                    "description": "Treatment: Scheduled WhatsApp Reminder"
+                }
+            ]),
+            min_observation_count=20,
+            start_time=datetime.utcnow() - timedelta(days=30),
+            end_time=datetime.utcnow() - timedelta(days=2),
+            created_at=datetime.utcnow() - timedelta(days=30),
+            updated_at=datetime.utcnow() - timedelta(days=2)
+        )
+        db.add(exp2)
+        db.flush()
+
+        card_cases = db.query(RecoveryCase).join(Payment).filter(
+            Payment.payment_method == "CARD"
+        ).limit(40).all()
+
+        for idx, rc in enumerate(card_cases):
+            p = rc.payment
+            is_ctrl = (idx % 2 == 0)
+            arm_id = "control_retry" if is_ctrl else "variant_reminder"
+            strat = "PAYMENT_RETRY" if is_ctrl else "SCHEDULED_REMINDER"
+            bucket = (idx * 2500) % 10000
+
+            asgn = db.query(ExperimentAssignment).filter(
+                ExperimentAssignment.experiment_id == exp2.id,
+                ExperimentAssignment.recovery_case_id == rc.id
+            ).first()
+
+            if not asgn:
+                asgn = ExperimentAssignment(
+                    id=f"asgn_crd_{idx:03d}",
+                    experiment_id=exp2.id,
+                    experiment_version=1,
+                    recovery_case_id=rc.id,
+                    payment_id=p.id,
+                    arm_id=arm_id,
+                    assigned_strategy=strat,
+                    is_control=is_ctrl,
+                    hash_bucket=bucket,
+                    assignment_salt=f"{exp2.id}:v1:payrecover_salt",
+                    assigned_at=rc.started_at,
+                    eligibility_snapshot_json=json.dumps({
+                        "failure_reason": p.failure_reason,
+                        "payment_method": p.payment_method,
+                        "amount": float(p.amount)
+                    })
+                )
+                db.add(asgn)
+                db.flush()
+
+            is_rec = (rc.status == RecoveryStatus.RECOVERED.value or p.status in ("RECOVERED", "SUCCESS"))
+            status_str = "RECOVERED" if is_rec else "UNSUCCESSFUL"
+            rec_amt = float(rc.recovered_amount or p.amount) if is_rec else 0.0
+
+            att = db.query(ExperimentOutcomeAttribution).filter(
+                ExperimentOutcomeAttribution.assignment_id == asgn.id
+            ).first()
+
+            if not att:
+                att = ExperimentOutcomeAttribution(
+                    id=f"att_crd_{idx:03d}",
+                    assignment_id=asgn.id,
+                    experiment_id=exp2.id,
+                    recovery_case_id=rc.id,
+                    payment_id=p.id,
+                    arm_id=arm_id,
+                    assigned_strategy=strat,
+                    actual_executed_strategy=strat,
+                    is_strategy_deviated=False,
+                    outcome_status=status_str,
+                    is_verified=True,
+                    recovered_amount=rec_amt,
+                    discount_offered=0.0,
+                    retry_count=rc.retry_count or 0,
+                    human_escalated=False,
+                    time_to_recovery_seconds=1840.0 if is_rec else None,
+                    assigned_at=rc.started_at,
+                    executed_at=rc.started_at + timedelta(minutes=5),
+                    attributed_at=rc.completed_at or (rc.started_at + timedelta(hours=4)),
+                    verification_source="settlement_reconciliation",
+                    attribution_window_valid=True,
+                    created_at=rc.started_at,
+                    updated_at=datetime.utcnow()
+                )
+                db.add(att)
+
+    db.commit()
+    print("[SEED] Synchronized Phase 6 Recovery Strategy Experiments & Cohort Telemetry.")
 
 
 def reset_demo_data(db: Session = None):
