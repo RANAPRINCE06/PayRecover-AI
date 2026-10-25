@@ -194,10 +194,10 @@ def retry_webhook_event(
     Safely reprocess an eligible failed or dead-letter event.
     Requires OPERATOR or ADMIN permission.
     """
-    success, message = webhook_service.reprocess_event(db, event_id)
+    success, message = webhook_service.reprocess_event(db, event_id, operator_email=current_user.email)
     if not success:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=message)
-    return {"message": message, "event_id": event_id}
+    return {"message": message, "event_id": event_id, "operator": current_user.email}
 
 
 @router.get("/health", response_model=WebhookHealthResponse)

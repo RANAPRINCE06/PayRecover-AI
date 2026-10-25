@@ -26,6 +26,7 @@ from app.core.webhook_verifier import webhook_verifier
 from app.services.payment_state_machine import payment_state_machine
 from app.services.event_service import event_service
 from app.services.redis_service import redis_service
+from app.core.metrics import metrics
 from app.integrations.razorpay_client import RazorpayClientWrapper
 from app.agents.orchestrator import RecoveryOrchestrator
 
@@ -180,6 +181,7 @@ class WebhookService:
             event.updated_at = datetime.utcnow()
             db.commit()
 
+            metrics.increment_counter("payrecover_outbox_processing_total", labels={"status": "PROCESSED"})
             logger.info(f"[WebhookWorker] Successfully processed event {event.id} ({event.event_type}).")
             return True
 
@@ -193,11 +195,13 @@ class WebhookService:
                 event.last_error = str(e)[:500]
                 if event.attempt_count >= event.max_attempts:
                     event.status = WebhookEventStatus.DEAD_LETTER.value
+                    metrics.increment_counter("payrecover_outbox_processing_total", labels={"status": "DEAD_LETTER"})
                     logger.error(f"[WebhookWorker] Event {event_id} exhausted max retries ({event.max_attempts}). Moved to DEAD_LETTER.")
                 else:
                     event.status = WebhookEventStatus.RETRY_PENDING.value
                     backoff = min(3600, (2 ** event.attempt_count) * 2 + random.uniform(0, 1))
                     event.next_retry_at = datetime.utcnow() + timedelta(seconds=backoff)
+                    metrics.increment_counter("payrecover_outbox_processing_total", labels={"status": "RETRY_PENDING"})
                     logger.warning(f"[WebhookWorker] Event {event_id} scheduled for retry at {event.next_retry_at}.")
                 event.updated_at = datetime.utcnow()
                 db.commit()
@@ -477,8 +481,8 @@ class WebhookService:
                 event.internal_case_id = case.id
 
     @classmethod
-    def reprocess_event(cls, db: Session, event_id: str) -> Tuple[bool, str]:
-        """Safely reprocess a failed or dead-letter event upon operator request."""
+    def reprocess_event(cls, db: Session, event_id: str, operator_email: Optional[str] = None) -> Tuple[bool, str]:
+        """Safely reprocess a failed or dead-letter event upon operator request with audit tracking."""
         event = db.query(WebhookEvent).filter(WebhookEvent.id == event_id).first()
         if not event:
             return False, "Webhook event not found"
@@ -486,10 +490,29 @@ class WebhookService:
         if event.status not in (WebhookEventStatus.FAILED.value, WebhookEventStatus.DEAD_LETTER.value, WebhookEventStatus.RETRY_PENDING.value):
             return False, f"Event in state '{event.status}' is not eligible for reprocessing."
 
+        # Audit track the operator replay request
+        meta = {}
+        if event.processing_metadata_json:
+            try:
+                meta = json.loads(event.processing_metadata_json)
+            except Exception:
+                meta = {}
+        replays = meta.get("replays", [])
+        replays.append({
+            "operator": operator_email or "system_operator",
+            "requested_at": datetime.utcnow().isoformat(),
+            "previous_status": event.status,
+            "previous_attempt_count": event.attempt_count
+        })
+        meta["replays"] = replays
+        event.processing_metadata_json = json.dumps(meta)
+
         event.status = WebhookEventStatus.RETRY_PENDING.value
         event.next_retry_at = datetime.utcnow()
         event.updated_at = datetime.utcnow()
         db.commit()
+
+        logger.info(f"[WebhookWorker] Operator '{operator_email or 'system'}' initiated replay for event {event_id}.")
 
         # Run processing
         success = cls.process_event(event.id)

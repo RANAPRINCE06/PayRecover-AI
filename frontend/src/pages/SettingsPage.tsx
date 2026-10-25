@@ -17,6 +17,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { AdminUserManagement } from '../components/AdminUserManagement';
 import { WebhookConsole } from '../components/WebhookConsole';
+import { OperationsConsole } from '../components/OperationsConsole';
 import { SystemHealth } from '../types';
 import { api } from '../services/api';
 
@@ -93,7 +94,7 @@ export const SettingsPage: React.FC = () => {
           { id: 'webhooks', label: 'Webhook Processing Console', icon: Radio },
           { id: 'users', label: 'Team & RBAC', icon: Users, adminOnly: true },
           { id: 'roles', label: 'Role Permissions Matrix', icon: ShieldCheck },
-          { id: 'health', label: 'System Health Diagnostics', icon: Activity },
+          { id: 'health', label: 'Operations & Reliability', icon: Activity },
           { id: 'audit', label: 'Security & Audit Logs', icon: FileText }
         ].map((tab) => {
           const Icon = tab.icon;
@@ -316,45 +317,9 @@ export const SettingsPage: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 4: System Health Diagnostics */}
-      {activeTab === 'health' && (
-        <div className="p-6 rounded-2xl bg-dark-850 border border-dark-700 space-y-4 shadow-xl">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-sm font-bold text-white flex items-center gap-2">
-                <Activity className="w-4 h-4 text-emerald-400" />
-                Live Subsystem Health Diagnostics
-              </h3>
-              <p className="text-xs text-slate-400">Endpoint: /api/system/health</p>
-            </div>
-            <button
-              onClick={fetchHealth}
-              disabled={healthLoading}
-              className="p-1.5 rounded-lg bg-dark-800 border border-dark-700 text-slate-300 hover:text-white"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${healthLoading ? 'animate-spin text-brand-cyan' : ''}`} />
-            </button>
-          </div>
+      {/* Tab 4: System Operations & Reliability Console */}
+      {activeTab === 'health' && <OperationsConsole />}
 
-          {healthLoading ? (
-            <div className="py-12 flex justify-center">
-              <Loader2 className="w-6 h-6 animate-spin text-brand-cyan" />
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-              {healthData?.services && Object.entries(healthData.services).map(([svc, stat]) => (
-                <div key={svc} className="p-3.5 rounded-xl bg-dark-800 border border-dark-700 space-y-1">
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-bold text-slate-200 capitalize">{svc.replace('_', ' ')}</span>
-                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  </div>
-                  <div className="text-[11px] font-mono text-emerald-400 font-bold uppercase">{stat}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Tab 5: Security & Audit Logs */}
       {activeTab === 'audit' && (

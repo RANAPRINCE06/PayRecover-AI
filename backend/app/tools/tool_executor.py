@@ -826,6 +826,12 @@ class ToolExecutor:
         guardrail_status = "SAFE"
         needs_approval = False
 
+        # 0. Pre-Execution Check: Halt immediately if payment is already settled
+        if payment.status in (PaymentStatus.RECOVERED.value, PaymentStatus.SUCCESS.value, "captured", "paid"):
+            guardrail_status = "BLOCKED"
+            constraints.append(f"Payment {payment.id} is already successfully settled (status: {payment.status}). Recovery halted.")
+            return guardrail_status, constraints, False
+
         # 1. High value check
         if guardrails.human_approval_required and payment.amount >= guardrails.high_value_threshold:
             needs_approval = True

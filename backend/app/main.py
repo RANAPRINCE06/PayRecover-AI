@@ -5,10 +5,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config import settings
+from app.core.logging_config import setup_structured_logging
 from app.db.session import engine, Base
 import app.models.entities  # Ensure all SQLAlchemy models are registered
 from app.db.seed_data import seed_database
 from app.core.middleware import CorrelationIdMiddleware, SecurityHeadersMiddleware
+from app.services.outbox_worker import outbox_worker
 from app.api.routes import router as api_router
 from app.api.analytics import router as analytics_router
 from app.api.system_status import router as system_router
@@ -20,11 +22,13 @@ from app.api.intelligence import router as intelligence_router
 from app.api.knowledge import router as knowledge_router
 from app.api.experiments import router as experiments_router
 from app.api.bandits import router as bandits_router
+from app.api.metrics import router as metrics_router
 
-# Setup logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+# Setup structured logging with sensitive data sanitization
+setup_structured_logging(
+    service_name="payrecover-api",
+    environment=settings.ENVIRONMENT,
+    log_format=getattr(settings, "LOG_FORMAT", "text")
 )
 logger = logging.getLogger("payrecover.main")
 
@@ -41,8 +45,15 @@ async def lifespan(app: FastAPI):
         seed_database()
     except Exception as e:
         logger.error(f"Error seeding database on startup: {e}")
+
+    # Start resilient background outbox worker
+    await outbox_worker.start()
+
     yield
+
     logger.info("Shutting down PayRecover AI...")
+    # Gracefully drain background worker
+    await outbox_worker.stop(drain_timeout=5.0)
 
 
 app = FastAPI(
@@ -96,13 +107,21 @@ app.include_router(knowledge_router, prefix="/api/knowledge")
 app.include_router(experiments_router, prefix="/api")
 app.include_router(bandits_router, prefix="/api")
 
+# Observability & Metrics (Prometheus standard endpoint)
+app.include_router(metrics_router)  # Mounted at /metrics
+app.include_router(metrics_router, prefix="/api")  # Mounted at /api/metrics
+
+# Standard Health Probes (Kubernetes / Docker convention: /health/live, /health/ready, /health/deps)
+app.include_router(system_router)  # Mounted directly at /health/live, /health/ready, etc.
+
 
 @app.get("/")
 def root():
     return {
         "service": "PayRecover AI API",
         "docs": "/docs",
-        "health": "/api/health"
+        "health": "/health",
+        "metrics": "/metrics"
     }
 
 

@@ -2,8 +2,10 @@ import json
 import logging
 import re
 from typing import Dict, Any, Optional
+import time
 import httpx
 from app.core.config import settings
+from app.core.metrics import metrics
 from app.schemas.contracts import (
     PaymentInvestigationResult,
     CustomerIntentResult,
@@ -204,6 +206,7 @@ WHATSAPP | SMS | EMAIL | VOICE | NONE
         """
         if not self.is_configured():
             logger.info("GEMINI_API_KEY not configured. Using deterministic contextual reasoning engine for strategist.")
+            metrics.increment_counter("payrecover_ai_strategy_generation_total", labels={"mode": "DETERMINISTIC_FALLBACK"})
             return self._deterministic_fallback_strategy(context)
 
         prompt = f"""
@@ -262,10 +265,14 @@ WHATSAPP | SMS | EMAIL | VOICE | NONE
             if "recommended_delay_minutes" in data:
                 data["recommended_delay_minutes"] = int(data["recommended_delay_minutes"])
 
-            return RecoveryStrategyProposal(**data)
+            res = RecoveryStrategyProposal(**data)
+            metrics.increment_counter("payrecover_ai_strategy_generation_total", labels={"mode": "GEMINI"})
+            return res
 
         except Exception as e:
             logger.error(f"Gemini strategist API execution failed: {e}", exc_info=True)
+            metrics.increment_counter("payrecover_ai_strategy_generation_total", labels={"mode": "DETERMINISTIC_FALLBACK"})
+            metrics.increment_counter("payrecover_dependency_errors_total", labels={"dependency": "gemini"})
             return self._deterministic_fallback_strategy(context, error_note=f"Gemini API Error: {str(e)}")
 
     # -------------------------------------------------------------

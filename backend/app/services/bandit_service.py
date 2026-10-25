@@ -34,6 +34,7 @@ from app.schemas.contracts import (
     BanditOfflineEvaluationResponse,
     BanditEvaluationPolicyMetrics
 )
+from app.core.metrics import metrics
 
 
 CANONICAL_BANDIT_ACTIONS = [
@@ -527,6 +528,12 @@ class ContextualBanditService:
         db.add(shadow_record)
         db.commit()
         db.refresh(shadow_record)
+
+        metrics.increment_counter("payrecover_bandit_decisions_total")
+        metrics.increment_counter(
+            "payrecover_shadow_decisions_total",
+            labels={"agreement": "AGREEMENT" if is_agreement else "DIVERGENT"}
+        )
 
         return shadow_record
 

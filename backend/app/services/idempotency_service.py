@@ -4,6 +4,7 @@ import logging
 from typing import Optional, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from app.models.entities import IdempotencyRecord
+from app.core.metrics import metrics
 
 logger = logging.getLogger("payrecover.idempotency")
 
@@ -19,7 +20,10 @@ class IdempotencyService:
         """Fetch previously recorded execution by idempotency key."""
         if not key or not key.strip():
             return None
-        return db.query(IdempotencyRecord).filter(IdempotencyRecord.key == key.strip()).first()
+        existing = db.query(IdempotencyRecord).filter(IdempotencyRecord.key == key.strip()).first()
+        if existing:
+            metrics.increment_counter("payrecover_idempotency_conflicts_total")
+        return existing
 
     @classmethod
     def save(

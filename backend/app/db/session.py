@@ -22,8 +22,15 @@ try:
         )
         logger.info(f"Connected to SQLite Database: {db_url}")
     else:
-        # Try connecting to PostgreSQL
-        test_engine = create_engine(db_url, pool_pre_ping=True)
+        # Try connecting to PostgreSQL with production connection pooling
+        test_engine = create_engine(
+            db_url,
+            pool_size=10,
+            max_overflow=20,
+            pool_recycle=1800,
+            pool_timeout=15,
+            pool_pre_ping=True
+        )
         with test_engine.connect() as conn:
             pass
         engine = test_engine

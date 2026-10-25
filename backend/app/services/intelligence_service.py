@@ -24,6 +24,7 @@ from app.schemas.contracts import (
     OutcomeRecordResponse,
     OutcomeSummaryStats
 )
+from app.core.metrics import metrics
 
 logger = logging.getLogger("payrecover.intelligence")
 
@@ -946,6 +947,7 @@ class OutcomeTrackingService:
             outcome.is_verified = True
             outcome.verification_source = verification_source
             outcome.outcome_timestamp = actual_time
+            metrics.increment_counter("payrecover_recovery_outcomes_total", labels={"outcome": "RECOVERED"})
 
             # Compute duration until recovery
             if outcome.decision_timestamp:
@@ -958,6 +960,7 @@ class OutcomeTrackingService:
             outcome.is_verified = True
             outcome.verification_source = verification_source
             outcome.outcome_timestamp = actual_time
+            metrics.increment_counter("payrecover_recovery_outcomes_total", labels={"outcome": "UNSUCCESSFUL"})
 
         elif case.status in (RecoveryStatus.IDENTIFIED.value, RecoveryStatus.INVESTIGATING.value, RecoveryStatus.STRATEGY_SELECTED.value, RecoveryStatus.ACTION_IN_PROGRESS.value, RecoveryStatus.AWAITING_CUSTOMER.value, RecoveryStatus.AWAITING_HUMAN_APPROVAL.value):
             outcome.outcome_status = RecoveryOutcomeStatus.PENDING.value
