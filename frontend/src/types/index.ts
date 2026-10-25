@@ -1255,4 +1255,115 @@ export interface ExperimentCreateRequest {
   end_time?: string;
 }
 
+// ─── Phase 7: Contextual Multi-Armed Bandits Types ─────────────────
+
+export interface BanditArmInspection {
+  arm_name: string;
+  sample_count: number;
+  theta_weights: Record<string, number>;
+  top_positive_features: Array<{ feature: string; weight: number }>;
+  top_negative_features: Array<{ feature: string; weight: number }>;
+  uncertainty_score: number;
+}
+
+export interface BanditPolicyStatusResponse {
+  policy_id: string;
+  policy_name: string;
+  policy_type: string;
+  version: string;
+  feature_schema_version: string;
+  is_shadow_mode: boolean;
+  is_active: boolean;
+  alpha_exploration: number;
+  ridge_lambda: number;
+  total_decisions_logged: number;
+  agreement_rate_with_production: number;
+  arms: BanditArmInspection[];
+  as_of_timestamp: string;
+}
+
+export interface BanditRecommendationRequest {
+  case_id?: string;
+  payment_method: string;
+  failure_category: string;
+  amount: number;
+  retry_count?: number;
+  customer_intent?: string;
+  customer_id?: string;
+}
+
+export interface BanditRecommendationResponse {
+  policy_version: string;
+  selected_action: string;
+  predicted_reward: number;
+  confidence_width: number;
+  ucb_score: number;
+  eligible_actions: string[];
+  selection_reason: string;
+  feature_attributions: Record<string, number>;
+  is_shadow_mode: boolean;
+  guardrail_overrides: string[];
+}
+
+export interface BanditShadowDecisionItem {
+  id: string;
+  recovery_case_id: string;
+  payment_id: string;
+  policy_version: string;
+  selected_action: string;
+  production_strategy: string;
+  is_agreement: boolean;
+  predicted_reward: number;
+  confidence_width: number;
+  selection_reason: string;
+  eventual_outcome: string;
+  actual_reward?: number | null;
+  decision_timestamp: string;
+}
+
+export interface BanditShadowDecisionsListResponse {
+  items: BanditShadowDecisionItem[];
+  total: number;
+  agreement_rate: number;
+  page: number;
+  page_size: number;
+}
+
+export interface BanditOfflineEvaluationRequest {
+  policy_type?: string;
+  alpha_exploration?: number;
+  temporal_split_pct?: number;
+  reward_cost_discount?: number;
+  reward_cost_retry?: number;
+  reward_cost_escalation?: number;
+  random_seed?: number;
+}
+
+export interface BanditEvaluationPolicyMetrics {
+  policy_name: string;
+  cumulative_reward: number;
+  mean_reward_per_case: number;
+  estimated_recovery_rate: number;
+  mean_revenue_recovered: number;
+  mean_discount_cost: number;
+  human_escalation_rate: number;
+  cases_evaluated: number;
+  simulated_regret: number;
+}
+
+export interface BanditOfflineEvaluationResponse {
+  evaluation_id: string;
+  dataset_size: number;
+  train_size: number;
+  test_size: number;
+  evaluation_methodology: string;
+  policies: Record<string, BanditEvaluationPolicyMetrics>;
+  winner_policy: string;
+  lift_over_historical_best: number;
+  category_breakdown: Record<string, { sample_size: number; linucb_rate: number; hist_rate: number }>;
+  limitations_disclaimer: string;
+  evaluated_at: string;
+}
+
+
 

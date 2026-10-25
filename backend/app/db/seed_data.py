@@ -34,7 +34,10 @@ from app.models.entities import (
     RecoveryExperiment,
     ExperimentAssignment,
     ExperimentOutcomeAttribution,
-    ExperimentStatus
+    ExperimentStatus,
+    BanditPolicyConfig,
+    BanditShadowDecision,
+    BanditPolicyType
 )
 from app.services.intelligence_service import amount_to_range, normalize_strategy_name
 from app.services.ingestion_service import ingestion_service
@@ -59,6 +62,7 @@ def seed_database(db: Session = None):
             _seed_recovery_outcomes(db)
             _seed_knowledge_documents(db)
             _seed_recovery_experiments(db)
+            _seed_contextual_bandits(db)
             return
 
         print("[SEED] Starting comprehensive seed generation for PayRecover AI...")
@@ -930,6 +934,46 @@ def _seed_recovery_experiments(db: Session):
 
     db.commit()
     print("[SEED] Synchronized Phase 6 Recovery Strategy Experiments & Cohort Telemetry.")
+
+
+def _seed_contextual_bandits(db: Session):
+    """
+    Seeds initial Contextual Bandit policy (LinUCB v1.0) and generates shadow-mode
+    decision evaluations on existing historical recovery cases.
+    """
+    from app.services.bandit_service import bandit_service
+
+    # 1. Ensure primary merchant policy exists
+    bandit_service.get_or_create_policy(
+        db,
+        merchant_id="merchant_primary",
+        policy_name="Production LinUCB Recovery Policy",
+        alpha=1.0,
+        ridge_lambda=1.0
+    )
+
+    # 2. Check if shadow decisions already seeded
+    if db.query(BanditShadowDecision).count() >= 10:
+        return
+
+    cases = db.query(RecoveryCase).filter(RecoveryCase.payment_id.isnot(None)).limit(30).all()
+    guardrail = db.query(MerchantGuardrail).filter(MerchantGuardrail.merchant_id == "merchant_primary").first()
+
+    for c in cases:
+        if not c.payment:
+            continue
+        p = c.payment
+        strat = c.current_strategy or "UPI_FALLBACK_LINK"
+        bandit_service.evaluate_and_log_shadow(
+            db=db,
+            payment=p,
+            recovery_case=c,
+            guardrail=guardrail,
+            production_strategy=strat
+        )
+
+    db.commit()
+    print("[SEED] Synchronized Phase 7 Contextual Bandit Policy and Shadow Decisions.")
 
 
 def reset_demo_data(db: Session = None):

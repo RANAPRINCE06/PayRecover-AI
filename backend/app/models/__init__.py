@@ -25,7 +25,10 @@ from app.models.entities import (
     ExperimentStatus,
     RecoveryExperiment,
     ExperimentAssignment,
-    ExperimentOutcomeAttribution
+    ExperimentOutcomeAttribution,
+    BanditPolicyType,
+    BanditPolicyConfig,
+    BanditShadowDecision
 )
 
 __all__ = [
@@ -55,6 +58,9 @@ __all__ = [
     "ExperimentStatus",
     "RecoveryExperiment",
     "ExperimentAssignment",
-    "ExperimentOutcomeAttribution"
+    "ExperimentOutcomeAttribution",
+    "BanditPolicyType",
+    "BanditPolicyConfig",
+    "BanditShadowDecision"
 ]
 

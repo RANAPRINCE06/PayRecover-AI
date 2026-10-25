@@ -608,4 +608,89 @@ class ExperimentOutcomeAttribution(Base):
     )
 
 
+# -------------------------------------------------------------
+# PHASE 7 — CONTEXTUAL BANDITS WITH SAFE POLICY ENVELOPES
+# -------------------------------------------------------------
+
+class BanditPolicyType(str, enum.Enum):
+    LINUCB = "LINUCB"
+    EPSILON_GREEDY = "EPSILON_GREEDY"
+    HISTORICAL_BEST = "HISTORICAL_BEST"
+
+
+class BanditPolicyConfig(Base):
+    __tablename__ = "bandit_policy_configs"
+
+    id = Column(String(50), primary_key=True, index=True)
+    merchant_id = Column(String(50), ForeignKey("merchants.id"), nullable=False, index=True)
+    policy_name = Column(String(100), nullable=False)
+    policy_type = Column(String(50), default=BanditPolicyType.LINUCB.value, nullable=False)
+    version = Column(String(20), default="v1.0", nullable=False, index=True)
+    feature_schema_version = Column(String(20), default="v1.0", nullable=False)
+
+    # Operational settings
+    is_shadow_mode = Column(Boolean, default=True, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    alpha_exploration = Column(Float, default=1.0, nullable=False)
+    ridge_lambda = Column(Float, default=1.0, nullable=False)
+    min_sample_threshold = Column(Integer, default=5, nullable=False)
+
+    # Serialized model parameters: {"arms": {arm: {"A": [[...]], "b": [...]}}}
+    parameters_json = Column(Text, nullable=True)
+    evaluation_summary_json = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    merchant = relationship("Merchant")
+    shadow_decisions = relationship("BanditShadowDecision", back_populates="policy")
+
+
+class BanditShadowDecision(Base):
+    __tablename__ = "bandit_shadow_decisions"
+
+    id = Column(String(50), primary_key=True, index=True)
+    policy_id = Column(String(50), ForeignKey("bandit_policy_configs.id"), nullable=True, index=True)
+    policy_version = Column(String(20), default="v1.0", nullable=False, index=True)
+    context_schema_version = Column(String(20), default="v1.0", nullable=False)
+
+    recovery_case_id = Column(String(50), ForeignKey("recovery_cases.id"), nullable=False, index=True)
+    payment_id = Column(String(50), ForeignKey("payments.id"), nullable=False, index=True)
+    merchant_id = Column(String(50), ForeignKey("merchants.id"), nullable=False, index=True)
+
+    # Decision telemetry
+    eligible_actions_json = Column(Text, nullable=False)  # JSON array
+    selected_action = Column(String(100), nullable=False)
+    selection_reason = Column(Text, nullable=False)
+    predicted_reward = Column(Float, nullable=False)
+    confidence_width = Column(Float, nullable=False)
+    feature_vector_json = Column(Text, nullable=False)  # JSON dict
+    feature_attributions_json = Column(Text, nullable=True)  # JSON dict of contributions
+
+    # Production comparison
+    production_strategy = Column(String(100), nullable=False)
+    is_agreement = Column(Boolean, default=False, nullable=False, index=True)
+    guardrail_evaluation_json = Column(Text, nullable=True)
+
+    # Delayed outcome reconciliation
+    eventual_outcome = Column(String(50), default="PENDING", nullable=False, index=True)
+    actual_reward = Column(Float, nullable=True)
+
+    decision_timestamp = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    outcome_timestamp = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+
+    policy = relationship("BanditPolicyConfig", back_populates="shadow_decisions")
+    recovery_case = relationship("RecoveryCase")
+    payment = relationship("Payment")
+    merchant = relationship("Merchant")
+
+    __table_args__ = (
+        Index("idx_shadow_policy_decision", "policy_version", "decision_timestamp"),
+        Index("idx_shadow_case_agreement", "recovery_case_id", "is_agreement"),
+    )
+
+
+
 

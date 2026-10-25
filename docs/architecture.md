@@ -156,3 +156,17 @@ The Phase 6 Experimentation Platform introduces randomized, controlled recovery 
 - **Statistical Analytics Engine**: Calculates 95% Wilson score intervals, two-proportion z-tests with exact p-values, Welch's t-tests for revenue comparison, and sample-size sufficiency warnings.
 - **Evidence-Grounded Strategy Optimization**: Feeds verified experiment lift into `StrategyEvaluationEngine` candidate scoring and enables safe offline Monte Carlo Thompson Sampling simulations.
 
+---
+
+## 6. Contextual Multi-Armed Bandits & Safe Policy Envelopes (Phase 7)
+
+Phase 7 introduces continuous contextual policy learning with non-negotiable financial guardrails:
+
+### Core Architectural Layers
+- **Leak-Proof Feature Pipeline**: Generates immutable 21-dimensional normalized vectors ($x \in \mathbb{R}^{21}$, v1.0 schema) with zero PII and strict temporal barriers ($t < \text{decision\_timestamp}$).
+- **Safe Policy Envelopes**: Deterministic financial guardrails prune the available action space before the bandit algorithm evaluates options. High-value transactions ($\ge$ ₹50,000) collapse the action space exclusively to human escalation; retry exhaustion and liquidity failures enforce backoff and link generation.
+- **Disjoint LinUCB Engine**: Implements closed-form ridge regressions $\hat{\theta}_a = A_a^{-1} b_a$ with upper confidence bounds $\text{UCB}_a(x) = \hat{\theta}_a^\top x + \alpha \sqrt{x^\top A_a^{-1} x}$.
+- **Bounded Economic Reward Function**: $R \in [-0.5, 1.0]$ balances verified recovery, discount costs, retry spam penalties, and escalation costs.
+- **Offline Policy Evaluation (OPE)**: Implements Replay and Doubly Robust counterfactual estimators on chronological train/test splits.
+- **Shadow Mode Isolation**: Shadow predictions run concurrently with production decisions, logging agreement metrics without modifying live recovery actions until verified.
+

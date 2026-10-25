@@ -52,7 +52,8 @@ import {
   AlertOctagon,
   Terminal,
   Check,
-  FlaskConical
+  FlaskConical,
+  Brain
 } from 'lucide-react';
 import {
   AnalyticsOverview,
@@ -76,6 +77,7 @@ import {
 } from '../types';
 import { api } from '../services/api';
 import { ExperimentationWorkspace } from '../components/ExperimentationWorkspace';
+import { BanditWorkspace } from '../components/BanditWorkspace';
 
 interface RecoveryIntelligenceProps {
   metrics?: DashboardMetrics | null;
@@ -94,7 +96,7 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
   const [recalibrating, setRecalibrating] = useState(false);
 
   // Tab views
-  const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'calibration' | 'outcomes' | 'knowledge' | 'experimentation'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'strategies' | 'calibration' | 'outcomes' | 'knowledge' | 'experimentation' | 'bandits'>('overview');
 
   // Base analytics
   const [overview, setOverview] = useState<AnalyticsOverview | null>(null);
@@ -389,6 +391,13 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
             >
               <FlaskConical className="w-3.5 h-3.5" />
               Experiments
+            </button>
+            <button
+              onClick={() => setActiveTab('bandits')}
+              className={`px-3 py-1 rounded-md font-medium transition flex items-center gap-1.5 ${activeTab === 'bandits' ? 'bg-brand-cyan text-dark-900 font-bold shadow-glow-cyan' : 'text-slate-400 hover:text-white'}`}
+            >
+              <Brain className="w-3.5 h-3.5" />
+              Bandits & Envelopes
             </button>
           </div>
 
@@ -1459,6 +1468,13 @@ export const RecoveryIntelligence: React.FC<RecoveryIntelligenceProps> = ({
           {activeTab === 'experimentation' && (
             <div className="space-y-6">
               <ExperimentationWorkspace />
+            </div>
+          )}
+
+          {/* TAB 7: CONTEXTUAL BANDITS & SAFE POLICY ENVELOPES */}
+          {activeTab === 'bandits' && (
+            <div className="space-y-6">
+              <BanditWorkspace />
             </div>
           )}
 

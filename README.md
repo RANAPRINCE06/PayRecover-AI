@@ -3,7 +3,7 @@
 > **Production-Grade AI Revenue Recovery Copilot for Indian Fintech Ecosystems**  
 > Intercepting payment failures across UPI, Cards, Net Banking, and recurring e-mandates with deterministic merchant guardrails, multi-agent intelligence, and real-time operations.
 
-[![Backend Tests](https://img.shields.io/badge/Backend%20Tests-244%2F244%20Passing-brightgreen?style=flat-square&logo=pytest)](https://github.com)
+[![Backend Tests](https://img.shields.io/badge/Backend%20Tests-260%2F260%20Passing-brightgreen?style=flat-square&logo=pytest)](https://github.com)
 [![Frontend Build](https://img.shields.io/badge/Frontend%20Build-Passing%20(0%20errors)-blue?style=flat-square&logo=vite)](https://github.com)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110.0-009688?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18.2.0-61DAFB?style=flat-square&logo=react)](https://react.dev)
@@ -112,6 +112,7 @@ flowchart TB
 6. **Enterprise Security & RBAC**: Granular roles (`ADMIN`, `OPERATOR`, `ANALYST`, `VIEWER`) and cryptographic idempotency protection preventing duplicate executions.
 7. **Verified Razorpay Webhooks & Event-Driven Engine**: Official HMAC-SHA256 signature verification over raw request body, durable PostgreSQL/SQLite outbox pattern, directional payment state machine, atomic worker locks, exponential backoff with jitter, dead-letter queuing, and real-time Webhook Processing Console. See **[Webhook Architecture Documentation](docs/webhook_architecture.md)**.
 8. **Controlled Recovery Strategy Experimentation & Optimization Engine (Phase 6)**: Deterministic, stable-hash case assignment (`SHA-256`), authoritative outcome attribution with 7-day windows, guardrail deviation logging, 95% Wilson confidence intervals, two-proportion z-tests, Welch revenue t-tests, evidence-grounded strategy ranking, and offline Monte Carlo Thompson Sampling simulations. See **[Experimentation Engine Documentation](docs/experimentation_engine.md)**.
+9. **Contextual Multi-Armed Bandits & Safe Policy Envelopes (Phase 7)**: Continuous online recovery policy optimization with Disjoint LinUCB ridge regression models ($\hat{\theta}_a = A_a^{-1}b_a$), leak-proof 21-dimensional normalized numerical context vectors (v1.0 schema), non-negotiable financial guardrail envelopes (hard human escalation on $\ge$ ₹50k, max retries, liquidity backoff, discount ceilings), bounded economic reward function ($R \in [-0.5, 1.0]$), offline policy evaluation with Replay and Doubly Robust counterfactual estimators, and zero-risk shadow-mode execution. See **[Contextual Bandits Documentation](docs/contextual_bandits.md)**.
 
 ---
 

@@ -1232,5 +1232,127 @@ class OfflineSimulationResponse(BaseModel):
     methodology_disclaimer: str
 
 
+# -------------------------------------------------------------
+# PHASE 7 — CONTEXTUAL BANDITS CONTRACTS
+# -------------------------------------------------------------
+
+class BanditFeatureVector(BaseModel):
+    schema_version: str = "v1.0"
+    features: Dict[str, float]
+    feature_names: List[str]
+    raw_context: Dict[str, Any] = Field(default_factory=dict)
+
+
+class BanditArmInspection(BaseModel):
+    arm_name: str
+    sample_count: int
+    theta_weights: Dict[str, float] = Field(default_factory=dict)
+    top_positive_features: List[Dict[str, Any]] = Field(default_factory=list)
+    top_negative_features: List[Dict[str, Any]] = Field(default_factory=list)
+    uncertainty_score: float = 0.0
+
+
+class BanditPolicyStatusResponse(BaseModel):
+    policy_id: str
+    policy_name: str
+    policy_type: str
+    version: str
+    feature_schema_version: str
+    is_shadow_mode: bool
+    is_active: bool
+    alpha_exploration: float
+    ridge_lambda: float
+    total_decisions_logged: int
+    agreement_rate_with_production: float
+    arms: List[BanditArmInspection]
+    as_of_timestamp: datetime
+
+
+class BanditRecommendationRequest(BaseModel):
+    case_id: Optional[str] = None
+    payment_method: str = Field(..., description="e.g. UPI, CARD, NETBANKING")
+    failure_category: str = Field(..., description="e.g. TECHNICAL_TIMEOUT, INSUFFICIENT_FUNDS")
+    amount: float = Field(..., ge=0.0)
+    retry_count: int = Field(default=0, ge=0)
+    customer_intent: Optional[str] = None
+    customer_id: Optional[str] = None
+
+
+class BanditRecommendationResponse(BaseModel):
+    policy_version: str
+    selected_action: str
+    predicted_reward: float
+    confidence_width: float
+    ucb_score: float
+    eligible_actions: List[str]
+    selection_reason: str
+    feature_attributions: Dict[str, float] = Field(default_factory=dict)
+    is_shadow_mode: bool = True
+    guardrail_overrides: List[str] = Field(default_factory=list)
+
+
+class BanditShadowDecisionItem(BaseModel):
+    id: str
+    recovery_case_id: str
+    payment_id: str
+    policy_version: str
+    selected_action: str
+    production_strategy: str
+    is_agreement: bool
+    predicted_reward: float
+    confidence_width: float
+    selection_reason: str
+    eventual_outcome: str
+    actual_reward: Optional[float] = None
+    decision_timestamp: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class BanditShadowDecisionsListResponse(BaseModel):
+    items: List[BanditShadowDecisionItem]
+    total: int
+    agreement_rate: float
+    page: int
+    page_size: int
+
+
+class BanditOfflineEvaluationRequest(BaseModel):
+    policy_type: str = Field(default="LINUCB", description="LINUCB | HISTORICAL_BEST | EPSILON_GREEDY")
+    alpha_exploration: float = Field(default=1.0, ge=0.0, le=5.0)
+    temporal_split_pct: float = Field(default=0.7, ge=0.2, le=0.9)
+    reward_cost_discount: float = Field(default=1.0, ge=0.0, le=5.0)
+    reward_cost_retry: float = Field(default=0.05, ge=0.0, le=1.0)
+    reward_cost_escalation: float = Field(default=0.15, ge=0.0, le=1.0)
+    random_seed: int = Field(default=42)
+
+
+class BanditEvaluationPolicyMetrics(BaseModel):
+    policy_name: str
+    cumulative_reward: float
+    mean_reward_per_case: float
+    estimated_recovery_rate: float
+    mean_revenue_recovered: float
+    mean_discount_cost: float
+    human_escalation_rate: float
+    cases_evaluated: int
+    simulated_regret: float
+
+
+class BanditOfflineEvaluationResponse(BaseModel):
+    evaluation_id: str
+    dataset_size: int
+    train_size: int
+    test_size: int
+    evaluation_methodology: str
+    policies: Dict[str, BanditEvaluationPolicyMetrics]
+    winner_policy: str
+    lift_over_historical_best: float
+    category_breakdown: Dict[str, Dict[str, float]] = Field(default_factory=dict)
+    limitations_disclaimer: str
+    evaluated_at: datetime
+
+
+
 
 

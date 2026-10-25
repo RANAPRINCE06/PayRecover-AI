@@ -154,6 +154,21 @@ class RecoveryOrchestrator:
         except Exception as out_err:
             logger.warning(f"Failed recording decision outcome in legacy pipeline: {out_err}")
 
+        # Phase 7: Contextual Bandit Shadow Mode Evaluation
+        try:
+            from app.services.guardrail_service import guardrail_service
+            from app.services.bandit_service import bandit_service
+            guardrails = guardrail_service.get_or_create_guardrails(db)
+            bandit_service.evaluate_and_log_shadow(
+                db=db,
+                payment=payment,
+                recovery_case=recovery_case,
+                guardrail=guardrails,
+                production_strategy=strategy.strategy
+            )
+        except Exception as bandit_err:
+            logger.debug(f"Bandit shadow evaluation bypass in legacy pipeline: {bandit_err}")
+
         # Log Strategist Action
         tool_executor.execute_action(
             db=db,
@@ -470,6 +485,19 @@ class RecoveryOrchestrator:
             )
         except Exception as exp_exec_err:
             logger.debug(f"Could not record experiment execution: {exp_exec_err}")
+
+        # Phase 7: Contextual Bandit Shadow Mode Evaluation
+        try:
+            from app.services.bandit_service import bandit_service
+            bandit_service.evaluate_and_log_shadow(
+                db=db,
+                payment=payment,
+                recovery_case=case,
+                guardrail=guardrails,
+                production_strategy=strategy.strategy
+            )
+        except Exception as bandit_err:
+            logger.debug(f"Could not record bandit shadow decision: {bandit_err}")
 
         if g_status == "BLOCKED":
             end = datetime.utcnow()

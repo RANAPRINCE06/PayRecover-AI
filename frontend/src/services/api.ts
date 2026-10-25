@@ -50,7 +50,13 @@ import {
   ExperimentAssignmentItem,
   ExperimentCreateRequest,
   OfflineSimulationRequest,
-  OfflineSimulationResponse
+  OfflineSimulationResponse,
+  BanditPolicyStatusResponse,
+  BanditRecommendationRequest,
+  BanditRecommendationResponse,
+  BanditShadowDecisionsListResponse,
+  BanditOfflineEvaluationRequest,
+  BanditOfflineEvaluationResponse
 } from '../types';
 
 const API_BASE = '/api';
@@ -448,6 +454,36 @@ export const api = {
     }),
 
   exportExperimentTelemetryUrl: (id: string, format = 'csv') =>
-    `/api/experiments/${id}/export?format=${format}`
+    `/api/experiments/${id}/export?format=${format}`,
+
+  // ─── Phase 7: Contextual Bandits ────────────────────────────────
+  getBanditPolicyStatus: (merchantId?: string) => {
+    const q = merchantId ? `?merchant_id=${merchantId}` : '';
+    return request<BanditPolicyStatusResponse>(`/bandits/status${q}`);
+  },
+
+  getBanditShadowDecisions: (page = 1, pageSize = 20, isAgreement?: boolean, outcome?: string) => {
+    const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+    if (isAgreement !== undefined) params.append('is_agreement', String(isAgreement));
+    if (outcome) params.append('outcome', outcome);
+    return request<BanditShadowDecisionsListResponse>(`/bandits/shadow-decisions?${params.toString()}`);
+  },
+
+  getBanditRecommendation: (payload: BanditRecommendationRequest) =>
+    request<BanditRecommendationResponse>('/bandits/recommend', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  evaluateBanditOffline: (payload: BanditOfflineEvaluationRequest) =>
+    request<BanditOfflineEvaluationResponse>('/bandits/evaluate', {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    }),
+
+  updateBanditParameters: (alpha: number, ridgeLambda: number) =>
+    request<{ status: string; message: string }>(`/bandits/parameters?alpha=${alpha}&ridge_lambda=${ridgeLambda}`, {
+      method: 'POST'
+    })
 };
 

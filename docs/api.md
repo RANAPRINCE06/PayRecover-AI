@@ -237,3 +237,50 @@ Runs deterministic offline Monte Carlo simulation comparing Thompson Sampling vs
 ### `GET /api/experiments/{experiment_id}/export`
 Exports sanitized audit log and outcome attribution records for external compliance and data warehouse pipelines.
 
+---
+
+## 6. Contextual Multi-Armed Bandits & Safe Policy Envelopes (Phase 7)
+
+### `GET /api/bandits/status`
+Returns active contextual bandit policy metadata, exploration parameters ($\alpha$, $\lambda$), total recorded decisions, average agreement rate, and per-arm ridge regression models with top positive and negative feature attributions.
+
+### `GET /api/bandits/shadow-decisions`
+Returns a paginated list of shadow-mode decisions recorded during pipeline executions.
+- **Query Parameters**:
+  - `page`: Page index (default: 1)
+  - `page_size`: Records per page (default: 20)
+  - `agreement_only`: Filter by agreement (`true` / `false` / omitted for all)
+
+### `POST /api/bandits/recommend`
+Runs contextual recommendation evaluation on an interactive test case without modifying live state.
+- **Request Body**:
+  ```json
+  {
+    "amount": 4200.0,
+    "payment_method": "UPI",
+    "failure_reason": "GATEWAY_TIMEOUT",
+    "retry_count": 0,
+    "customer_intent": "WILLING_TO_PAY",
+    "customer_prior_success_rate": 0.85
+  }
+  ```
+- **Response**: Returns recommended arm, predicted economic reward, epistemic confidence width, eligible safe actions, and normalized 21-dimensional feature vector.
+
+### `POST /api/bandits/evaluate`
+Runs offline counterfactual policy evaluation (OPE) on historical verified recovery outcomes.
+- **Request Body**:
+  ```json
+  {
+    "evaluation_method": "DOUBLY_ROBUST",
+    "train_split": 0.70
+  }
+  ```
+- **Response**: Returns comparative metrics (estimated value, lower/upper bounds, decisions evaluated, policy agreement rate) for:
+  - `LINUCB` (Disjoint Linear Upper Confidence Bound)
+  - `HISTORICAL_BEST` (Highest aggregate historical recovery strategy)
+  - `EPSILON_GREEDY` (Simulated $\epsilon = 0.10$ greedy policy)
+  - `ORACLE` (Theoretical upper bound on factual data)
+
+### `PUT /api/bandits/parameters`
+Updates active bandit hyperparameters (`alpha` exploration rate, `lambda_reg` ridge regularizer, safe envelopes) with strict range validation (`alpha` $\in [0.0, 5.0]$, `lambda_reg` $\in [0.01, 100.0]$).
+

@@ -983,6 +983,22 @@ class OutcomeTrackingService:
         except Exception as exp_err:
             logger.warning(f"[OutcomeEngine] Could not reconcile experiment attribution for {recovery_case_id}: {exp_err}")
 
+        # Phase 7: Reconcile bandit shadow decision outcome
+        try:
+            from app.services.bandit_service import bandit_service
+            bandit_service.reconcile_shadow_outcome(
+                db=db,
+                recovery_case_id=recovery_case_id,
+                outcome_status=outcome.outcome_status,
+                recovered_amount=outcome.recovered_amount,
+                transaction_amount=float(payment.amount),
+                discount_offered=float(outcome.discount_offered_percent or 0.0),
+                attempt_count=(case.retry_count or 0) + 1,
+                human_escalated=bool(outcome.human_approval_required)
+            )
+        except Exception as bandit_reconcile_err:
+            logger.warning(f"[OutcomeEngine] Could not reconcile bandit shadow outcome for {recovery_case_id}: {bandit_reconcile_err}")
+
         logger.info(
             f"[OutcomeEngine] Verified outcome for case {recovery_case_id}: status={outcome.outcome_status}, "
             f"amount=₹{outcome.recovered_amount:,.2f}, verified={outcome.is_verified}"
